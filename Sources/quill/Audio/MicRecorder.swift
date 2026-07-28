@@ -34,6 +34,12 @@ final class MicRecorder: @unchecked Sendable {
     /// Wall-clock time of the first captured buffer — the track's true start,
     /// used to offset-align the two tracks' transcript timestamps.
     private(set) var firstBufferAt: Date?
+    /// Wall-clock time of the most recent captured buffer. When a device
+    /// reconfiguration kills the engine, the span from here to the restart is
+    /// written as silence so downstream timestamps stay wall-clock aligned.
+    private var lastBufferAt: Date?
+    private var configObserver: NSObjectProtocol?
+    private var restartPending = false
 
     // Liveness check state (voice-processing path only). Written from the tap
     // callback, read on main when deciding to fall back.
@@ -48,23 +54,37 @@ final class MicRecorder: @unchecked Sendable {
         self.url = url
         try attach(voiceProcessing: Config.micVoiceProcessing())
         isRecording = true
+        // A call app (FaceTime, Zoom) grabbing the mic reconfigures the input
+        // device and stops the engine mid-session; without this observer the
+        // track just ends there (2026.07.28: 1.7s mic on a 19min call).
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, (note.object as? AVAudioEngine) === self.engine else { return }
+            self.handleConfigChange()
+        }
     }
 
     /// Stop capturing and finalize the file. Idempotent.
     func stop() {
         guard isRecording else { return }
         isRecording = false
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+            self.configObserver = nil
+        }
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         file = nil
+        lastBufferAt = nil
     }
 
     // MARK: -
 
     /// Build the engine graph, create the AAC file, and start capture. Called
-    /// once at start, and a second time (voiceProcessing: false) if the
-    /// liveness check trips.
-    private func attach(voiceProcessing: Bool) throws {
+    /// once at start, again (voiceProcessing: false) if the liveness check
+    /// trips, and (reusingFile: true) after a device reconfiguration.
+    private func attach(voiceProcessing: Bool, reusingFile: Bool = false) throws {
         engine = AVAudioEngine()
         let input = engine.inputNode
 
@@ -98,6 +118,22 @@ final class MicRecorder: @unchecked Sendable {
             interleaved: false
         ) else {
             throw RecorderError.formatUnsupported(inputFormat)
+        }
+
+        if reusingFile, let existing = file {
+            // Mid-session restart: keep appending to the open file. The tap
+            // converts to the file's original format, so a device that came
+            // back at a different sample rate still writes cleanly. Raw path
+            // only — during a call the call app owns echo cancellation.
+            try installRawTap(on: input, inputFormat: inputFormat, monoFormat: existing.processingFormat)
+            engine.prepare()
+            do {
+                try engine.start()
+            } catch {
+                input.removeTap(onBus: 0)
+                throw RecorderError.engineStartFailed(error)
+            }
+            return
         }
 
         let settings: [String: Any] = [
@@ -154,6 +190,7 @@ final class MicRecorder: @unchecked Sendable {
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self, let file = self.file else { return }
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
+            self.lastBufferAt = Date()
 
             if !self.livenessSettled {
                 let frames = Int(buffer.frameLength)
@@ -190,19 +227,94 @@ final class MicRecorder: @unchecked Sendable {
         guard let converter = AVAudioConverter(from: inputFormat, to: monoFormat) else {
             throw RecorderError.formatUnsupported(inputFormat)
         }
+        let sameRate = inputFormat.sampleRate == monoFormat.sampleRate
+        let ratio = monoFormat.sampleRate / inputFormat.sampleRate
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let file = self.file else { return }
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
+            self.lastBufferAt = Date()
+            let capacity = AVAudioFrameCount(Double(buffer.frameCapacity) * ratio) + 64
             guard let mono = AVAudioPCMBuffer(
                 pcmFormat: monoFormat,
-                frameCapacity: buffer.frameCapacity
+                frameCapacity: capacity
             ) else { return }
             do {
-                try converter.convert(to: mono, from: buffer)
+                if sameRate {
+                    try converter.convert(to: mono, from: buffer)
+                } else {
+                    // Post-reconfigure the device can come back at a new rate;
+                    // the one-shot convert only handles equal rates.
+                    var fed = false
+                    var convertError: NSError?
+                    converter.convert(to: mono, error: &convertError) { _, outStatus in
+                        if fed {
+                            outStatus.pointee = .noDataNow
+                            return nil
+                        }
+                        fed = true
+                        outStatus.pointee = .haveData
+                        return buffer
+                    }
+                    if let convertError { throw convertError }
+                }
                 try file.write(from: mono)
             } catch {
                 FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
             }
+        }
+    }
+
+    /// Another process reconfigured the input device (typically a call app
+    /// engaging voice processing) and the engine stopped. Debounce briefly —
+    /// reconfiguration storms post several notifications — then restart.
+    private func handleConfigChange() {
+        guard isRecording, !restartPending else { return }
+        restartPending = true
+        FileHandle.standardError.write(Data(
+            "mic: input device reconfigured (call app?) — restarting capture\n".utf8
+        ))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.restartCapture()
+        }
+    }
+
+    private func restartCapture() {
+        restartPending = false
+        guard isRecording else { return }
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        padGapWithSilence()
+        do {
+            try attach(voiceProcessing: false, reusingFile: true)
+        } catch {
+            FileHandle.standardError.write(Data(
+                "mic restart failed: \(error) — retrying in 2s\n".utf8
+            ))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self, self.isRecording else { return }
+                self.restartCapture()
+            }
+        }
+    }
+
+    /// Write zeroed frames covering the dead span so the track's duration
+    /// stays wall-clock true and transcript timestamps don't drift.
+    private func padGapWithSilence() {
+        guard let file, let last = lastBufferAt else { return }
+        let gap = Date().timeIntervalSince(last)
+        guard gap > 0.05 else { return }
+        let format = file.processingFormat
+        var remaining = AVAudioFrameCount(gap * format.sampleRate)
+        let chunk = AVAudioFrameCount(format.sampleRate)
+        while remaining > 0 {
+            let n = min(remaining, chunk)
+            guard let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: n) else { return }
+            buf.frameLength = n
+            if let data = buf.floatChannelData?[0] {
+                data.update(repeating: 0, count: Int(n))
+            }
+            try? file.write(from: buf)
+            remaining -= n
         }
     }
 
