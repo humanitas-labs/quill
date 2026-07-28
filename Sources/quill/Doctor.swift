@@ -21,7 +21,8 @@ enum DoctorReport {
             checkSystemAudio(),
             checkRecordingsRoot(recordingsRoot),
             checkTranscription(),
-        ]
+            checkAssemblyAI(),
+        ].compactMap { $0 }
     }
 
     static func checkMicrophone() -> Check {
@@ -78,6 +79,7 @@ enum DoctorReport {
 
     /// Never discover a missing model after an important meeting: report
     /// whether the parakeet models are already in FluidAudio's cache.
+    /// Skipped when the configured engine is assemblyai — no local models needed.
     static func checkTranscription() -> Check {
         guard Config.transcriptionEnabled() else {
             return Check(
@@ -85,6 +87,10 @@ enum DoctorReport {
                 status: .warn("disabled in config"),
                 remediation: nil
             )
+        }
+        // AssemblyAI uses cloud inference — no local model download required.
+        guard Config.transcriptionEngine() != "assemblyai" else {
+            return Check(name: "transcription", status: .ok, remediation: nil)
         }
         let cache = AsrModels.defaultCacheDirectory(for: .v2)
         if AsrModels.modelsExist(at: cache, version: .v2) {
@@ -94,6 +100,21 @@ enum DoctorReport {
             name: "transcription",
             status: .warn("parakeet models not downloaded (~600 MB)"),
             remediation: "downloads automatically on first transcription — record a short test session while online"
+        )
+    }
+
+    /// Warn when assemblyai engine is configured but the API key is missing.
+    /// Returns nil (skipped entirely) when the configured engine is not assemblyai,
+    /// so the check never appears in doctor output for parakeet users.
+    static func checkAssemblyAI() -> Check? {
+        guard Config.transcriptionEngine() == "assemblyai" else { return nil }
+        if Config.assemblyAIApiKey() != nil {
+            return Check(name: "assemblyai", status: .ok, remediation: nil)
+        }
+        return Check(
+            name: "assemblyai",
+            status: .fail("assemblyai_api_key not set"),
+            remediation: "add \"assemblyai_api_key\": \"<your-key>\" to ~/.config/quill/config.json"
         )
     }
 

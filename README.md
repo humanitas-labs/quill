@@ -58,6 +58,11 @@ Core ML port — roughly 20 seconds per hour of audio on Apple Silicon. Models
 whether they're already cached so you're never downloading after an important
 meeting.
 
+An alternative **AssemblyAI** cloud engine is also supported, using the
+Universal-2 model. It requires an internet connection and an API key — audio
+is uploaded to AssemblyAI's servers for transcription. Use it when you want
+multilingual support or prefer not to download the local model weights.
+
 Each track is transcribed separately, shifted by its start offset so both
 share one clock, and merged by timestamp. Jobs run in a serial queue — you can
 start a new recording while the last one transcribes. Unfinished jobs resume
@@ -65,8 +70,8 @@ on next launch (the filesystem is the queue: a session with `meta.json` but no
 `transcript.json` is pending). Failures append to the session's
 `transcribe.log` and never block later jobs.
 
-The engine sits behind a small protocol; a Whisper engine (WhisperKit
-large-v3-turbo) is planned as the fallback / re-transcription option.
+The engine sits behind a small protocol; switching between engines only
+requires a config change — no rebuild needed.
 
 ## Config
 
@@ -80,9 +85,27 @@ Optional, at `~/.config/quill/config.json`:
 }
 ```
 
+To use AssemblyAI instead:
+
+```json
+{
+  "transcription": { "engine": "assemblyai" },
+  "assemblyai_api_key": "your_key_here"
+}
+```
+
+Get your API key from [assemblyai.com/dashboard](https://www.assemblyai.com/dashboard/home).
+Run `quill doctor` to confirm the key is detected before recording.
+
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
+- `transcription.engine` — `"parakeet"` (default, fully local) or
+  `"assemblyai"` (cloud, Universal-2, multilingual). Switching only requires
+  a config change, no rebuild.
+- `assemblyai_api_key` — required when engine is `"assemblyai"`. Audio is
+  uploaded to AssemblyAI's servers; nothing leaves the machine when using
+  the default parakeet engine.
 - `mic_voice_processing` — Apple's echo cancellation on the mic (default off).
   Set `true` when recording meetings through the speakers, so playback doesn't
   bleed into the mic track and get transcribed twice as "me". The trade: while

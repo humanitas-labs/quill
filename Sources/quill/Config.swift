@@ -38,8 +38,9 @@ enum Config {
         transcription()?["enabled"] as? Bool ?? true
     }
 
-    /// Configured engine name. Only "parakeet" ships today; the coordinator
-    /// warns and falls back for anything else.
+    /// Configured engine name. Supported values: "parakeet" (default, local
+    /// on-device) and "assemblyai" (cloud, Universal-2, multilingual). Unknown
+    /// values fall back to parakeet with a warning.
     static func transcriptionEngine() -> String {
         transcription()?["engine"] as? String ?? "parakeet"
     }
@@ -55,6 +56,14 @@ enum Config {
     /// recording meetings through the speakers.
     static func micVoiceProcessing() -> Bool {
         load()?["mic_voice_processing"] as? Bool ?? false
+    }
+
+    /// AssemblyAI API key, read from "assemblyai_api_key" in config.json.
+    /// Returns nil when the key is absent or empty — the engine will refuse
+    /// to prepare and surface a clear error rather than failing mid-recording.
+    static func assemblyAIApiKey() -> String? {
+        guard let key = load()?["assemblyai_api_key"] as? String, !key.isEmpty else { return nil }
+        return key
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather
