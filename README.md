@@ -51,12 +51,16 @@ written is still readable.
 
 ## Transcription
 
-Built in, on-device, automatic. The default engine is **Parakeet TDT 0.6B v2**
-(English) via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s
-Core ML port — roughly 20 seconds per hour of audio on Apple Silicon. Models
-(~600 MB) download once on first transcription; `quill doctor` tells you
-whether they're already cached so you're never downloading after an important
-meeting.
+Built in, on-device, automatic. The default engine is **Parakeet TDT 0.6B v3**
+via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Core ML port —
+roughly 20 seconds per hour of audio on Apple Silicon. v3 is the multilingual
+model (25 European languages plus Japanese) and detects the spoken language on
+its own, so there's nothing to configure for a non-English meeting.
+
+Set `transcription.model` to `"v2"` for the English-only model, which has
+marginally higher recall on English. Models (~600 MB) download once on first
+transcription; `quill doctor` tells you whether they're already cached so
+you're never downloading after an important meeting.
 
 Each track is transcribed separately, shifted by its start offset so both
 share one clock, and merged by timestamp. Jobs run in a serial queue — you can
@@ -75,7 +79,7 @@ Optional, at `~/.config/quill/config.json`:
 ```json
 {
   "recordings_dir": "~/Recordings",
-  "transcription": { "enabled": true, "engine": "parakeet" },
+  "transcription": { "enabled": true, "engine": "parakeet", "model": "v3" },
   "on_stop": "my-hook"
 }
 ```
@@ -83,6 +87,9 @@ Optional, at `~/.config/quill/config.json`:
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
+- `transcription.model` — parakeet model version: `"v3"` (default,
+  multilingual, self-detecting) or `"v2"` (English-only, marginally higher
+  recall on English). An unrecognized value warns and falls back to v3.
 - `mic_voice_processing` — Apple's echo cancellation on the mic (default off).
   Set `true` when recording meetings through the speakers, so playback doesn't
   bleed into the mic track and get transcribed twice as "me". The trade: while
@@ -121,7 +128,8 @@ quill install --uninstall
   per-process picker if it bothers you).
 - If recordings come out silent, check System Settings → Privacy & Security →
   Screen & System Audio Recording.
-- Parakeet v2 is English-only. Other languages will come with the Whisper
-  engine.
+- Parakeet v2 (`"model": "v2"`) is English-only — it will happily return
+  English-looking nonsense for other languages rather than failing. v3 is the
+  default for that reason.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.

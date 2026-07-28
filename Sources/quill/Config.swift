@@ -44,6 +44,13 @@ enum Config {
         transcription()?["engine"] as? String ?? "parakeet"
     }
 
+    /// Configured model for the engine. For parakeet: "v3" (multilingual,
+    /// default) or "v2" (English-only, marginally higher recall on English).
+    /// The engine warns and falls back for anything it doesn't recognize.
+    static func transcriptionModel() -> String {
+        transcription()?["model"] as? String ?? "v3"
+    }
+
     private static func transcription() -> [String: Any]? {
         load()?["transcription"] as? [String: Any]
     }
