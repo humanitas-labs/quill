@@ -15,13 +15,8 @@ Swift binary, menu-bar tray, no app bundle.
 **quill.app** to Applications. Launch it and the feather appears in the menu
 bar.
 
-The app is signed with a Developer ID. Release builds are not yet notarized, so
-on first launch macOS Gatekeeper shows a warning — **right-click quill.app →
-Open** (once), or clear the quarantine flag:
-
-```sh
-xattr -d com.apple.quarantine /Applications/quill.app
-```
+The app is signed with a Developer ID and notarized by Apple, so it opens
+without Gatekeeper warnings.
 
 To also use the CLI (`quill doctor`, `quill run`, …), symlink the bundled
 binary onto your `PATH`:
