@@ -10,6 +10,30 @@ Swift binary, menu-bar tray, no app bundle.
 
 ## Install
 
+**Download (recommended).** Grab the latest `.dmg` from the
+[Releases](https://github.com/digimata/quill/releases) page, open it, and drag
+**quill.app** to Applications. Launch it and the feather appears in the menu
+bar.
+
+The app is signed with a Developer ID. Release builds are not yet notarized, so
+on first launch macOS Gatekeeper shows a warning — **right-click quill.app →
+Open** (once), or clear the quarantine flag:
+
+```sh
+xattr -d com.apple.quarantine /Applications/quill.app
+```
+
+To also use the CLI (`quill doctor`, `quill run`, …), symlink the bundled
+binary onto your `PATH`:
+
+```sh
+sudo ln -sf /Applications/quill.app/Contents/MacOS/quill /usr/local/bin/quill
+quill doctor                      # check permissions & models
+quill install --launch-at-login   # optional — run in the background on login
+```
+
+**Build from source.**
+
 ```sh
 cd quill
 swift build -c release
@@ -17,9 +41,13 @@ sudo cp .build/release/quill /usr/local/bin/quill
 quill install --launch-at-login   # optional — runs in the background on login
 ```
 
+To produce a signed, notarized `.dmg` yourself, see
+[`scripts/build-release.sh`](scripts/build-release.sh) and
+[Releasing](#releasing).
+
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension). Apple Silicon recommended for
-transcription speed.
+virtual device, no kernel extension). Apple Silicon (the release binary is
+`arm64`; build from source for Intel).
 
 ## How to use
 
@@ -113,6 +141,35 @@ quill install --uninstall
 - **AVAudioFile** — streaming AAC encode into CAF
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **NSStatusItem** — the whole UI
+
+## Releasing
+
+Distribution artifacts are Developer ID-signed and Apple-notarized so they run
+without Gatekeeper prompts. quill ships as a menu-bar `quill.app` inside a
+`.dmg`; everything signs with a single **Developer ID Application**
+certificate — no Developer ID Installer cert required.
+
+- **Locally:** `scripts/build-release.sh` builds the release binary, wraps it
+  in `quill.app` (Info.plist from `packaging/Info.plist`), codesigns it
+  (hardened runtime + `packaging/quill.entitlements`), notarizes and staples
+  the app, then packages and notarizes a `.dmg`. It reads its config from the
+  environment:
+
+  ```sh
+  APP_IDENTITY="Developer ID Application: NAME (TEAMID)" \
+  NOTARY_PROFILE=quill-notary \
+  VERSION=0.1.0 \
+  ./scripts/build-release.sh
+  ```
+
+  `NOTARY_PROFILE` is a `notarytool` keychain profile
+  (`xcrun notarytool store-credentials`). Set `SKIP_NOTARIZE=1` to sign without
+  notarizing (local testing only).
+
+- **CI:** push a `v*` tag and `.github/workflows/release.yml` builds, signs,
+  notarizes, and attaches the `.dmg` to the GitHub release. It expects the
+  certificate and App Store Connect notary secrets documented at the top of
+  that workflow.
 
 ## Gotchas
 

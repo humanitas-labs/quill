@@ -1,0 +1,85 @@
+name: release
+
+# Build, Developer ID-sign, notarize, and publish a quill .dmg whenever a
+# v* tag is pushed. Mirrors scripts/build-release.sh. Signs a menu-bar .app
+# with a single Developer ID Application cert — no Installer cert needed.
+#
+# Required repository secrets:
+#   DEVELOPER_ID_APP_P12_BASE64  base64 of the Developer ID Application .p12
+#   DEV_ID_P12_PASSWORD          password for the .p12
+#   APP_IDENTITY                 "Developer ID Application: NAME (TEAMID)"
+#   NOTARY_KEY_P8_BASE64         base64 of the App Store Connect API key (.p8)
+#   NOTARY_KEY_ID                App Store Connect key id
+#   NOTARY_ISSUER_ID             App Store Connect issuer id
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without leading v)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import signing certificate
+        env:
+          APP_P12: ${{ secrets.DEVELOPER_ID_APP_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEV_ID_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PW="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+
+          echo "$APP_P12" | base64 --decode > "$RUNNER_TEMP/app.p12"
+          security import "$RUNNER_TEMP/app.p12" -k "$KEYCHAIN" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/app.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain
+
+      - name: Store notary credentials
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials quill-notary \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID"
+          rm -f "$RUNNER_TEMP/notary.p8"
+
+      - name: Build, sign, notarize
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          APP_IDENTITY: ${{ secrets.APP_IDENTITY }}
+          NOTARY_PROFILE: quill-notary
+        run: ./scripts/build-release.sh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/quill-${{ steps.v.outputs.version }}.dmg
+          generate_release_notes: true
