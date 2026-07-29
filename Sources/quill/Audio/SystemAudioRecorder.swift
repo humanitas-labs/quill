@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreAudio
 import Foundation
+import os.lock
 
 /// Records all system audio output to a file via a Core Audio process tap
 /// (macOS 14.2+). No virtual device, no kernel extension — the tap mixes every
@@ -32,12 +33,28 @@ final class SystemAudioRecorder {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private var file: AVAudioFile?
     private let queue = DispatchQueue(label: "com.digimata.quill.system-tap")
     private(set) var isRecording = false
+
+    // Thread-safe shared state: accessed from both the main thread and the
+    // IOProc callback (background serial queue) without further sync.
+    private struct LockedState {
+        var file: AVAudioFile?
+        var firstBufferAt: Date?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: LockedState())
+
+    private var file: AVAudioFile? {
+        get { state.withLock { $0.file } }
+        set { state.withLock { $0.file = newValue } }
+    }
+
     /// Wall-clock time of the first captured buffer — the track's true start,
     /// used to offset-align the two tracks' transcript timestamps.
-    private(set) var firstBufferAt: Date?
+    private(set) var firstBufferAt: Date? {
+        get { state.withLock { $0.firstBufferAt } }
+        set { state.withLock { $0.firstBufferAt = newValue } }
+    }
 
     /// Start capturing system audio, encoding AAC into `url` (use a .caf
     /// extension — CAF needs no finalization pass, so a crash mid-meeting
