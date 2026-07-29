@@ -77,7 +77,9 @@ enum DoctorReport {
     }
 
     /// Never discover a missing model after an important meeting: report
-    /// whether the parakeet models are already in FluidAudio's cache.
+    /// whether the parakeet models are already in FluidAudio's cache. Which
+    /// models those are depends on the configured language, and each version
+    /// caches separately — so changing the language reopens this check.
     static func checkTranscription() -> Check {
         guard Config.transcriptionEnabled() else {
             return Check(
@@ -86,13 +88,14 @@ enum DoctorReport {
                 remediation: nil
             )
         }
-        let cache = AsrModels.defaultCacheDirectory(for: .v2)
-        if AsrModels.modelsExist(at: cache, version: .v2) {
+        let variant = ParakeetEngine.variant(for: Config.transcriptionLanguage())
+        let cache = AsrModels.defaultCacheDirectory(for: variant.version)
+        if AsrModels.modelsExist(at: cache, version: variant.version) {
             return Check(name: "transcription", status: .ok, remediation: nil)
         }
         return Check(
             name: "transcription",
-            status: .warn("parakeet models not downloaded (~600 MB)"),
+            status: .warn("\(variant.model) not downloaded (~600 MB)"),
             remediation: "downloads automatically on first transcription — record a short test session while online"
         )
     }

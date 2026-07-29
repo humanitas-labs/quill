@@ -4,7 +4,7 @@ import Foundation
 ///
 ///     {
 ///       "recordings_dir": "~/Recordings",
-///       "transcription": { "enabled": true, "engine": "parakeet" },
+///       "transcription": { "enabled": true, "engine": "parakeet", "language": "en" },
 ///       "mic_voice_processing": true,
 ///       "on_stop": "my-hook"
 ///     }
@@ -42,6 +42,20 @@ enum Config {
     /// warns and falls back for anything else.
     static func transcriptionEngine() -> String {
         transcription()?["engine"] as? String ?? "parakeet"
+    }
+
+    /// Spoken language of your recordings as a two-letter code — "es", "fr",
+    /// "de", … — or "auto" to let the model detect it. Default "en".
+    ///
+    /// This selects the model, not just a hint: "en" runs Parakeet v2, which
+    /// is English-only; anything else runs v3, multilingual across 25
+    /// European languages. Default "en" because it's the better English
+    /// transcript and it doesn't push a second ~600 MB download on anyone who
+    /// never asked for another language. The cost of getting this wrong is
+    /// asymmetric and silent — v2 doesn't reject Spanish audio, it forces it
+    /// through English phonetics and writes plausible nonsense.
+    static func transcriptionLanguage() -> String {
+        transcription()?["language"] as? String ?? "en"
     }
 
     private static func transcription() -> [String: Any]? {

@@ -58,6 +58,10 @@ Core ML port — roughly 20 seconds per hour of audio on Apple Silicon. Models
 whether they're already cached so you're never downloading after an important
 meeting.
 
+Recording in another language? Set `transcription.language` (see
+[Config](#config)) and quill runs **Parakeet TDT 0.6B v3** instead —
+multilingual across 25 European languages.
+
 Each track is transcribed separately, shifted by its start offset so both
 share one clock, and merged by timestamp. Jobs run in a serial queue — you can
 start a new recording while the last one transcribes. Unfinished jobs resume
@@ -75,7 +79,7 @@ Optional, at `~/.config/quill/config.json`:
 ```json
 {
   "recordings_dir": "~/Recordings",
-  "transcription": { "enabled": true, "engine": "parakeet" },
+  "transcription": { "enabled": true, "engine": "parakeet", "language": "en" },
   "on_stop": "my-hook"
 }
 ```
@@ -83,6 +87,16 @@ Optional, at `~/.config/quill/config.json`:
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
+- `transcription.language` — two-letter code (`"es"`, `"fr"`, `"de"`, …) or
+  `"auto"` to let the model detect it. Default `"en"`. This picks the model,
+  not just a hint: `"en"` runs Parakeet v2, English-only and the better
+  English transcript; anything else runs v3, multilingual across 25 European
+  languages (the [full list](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
+  is NVIDIA's). Worth setting even though it's opt-in — v2 doesn't *reject*
+  Spanish audio, it forces it through English phonetics and writes plausible
+  nonsense. Each version caches separately, so the first run after a change
+  pays for another ~600 MB download and the model you were on stays put. A
+  change applies to the next batch of transcriptions, not one already running.
 - `mic_voice_processing` — Apple's echo cancellation on the mic (default off).
   Set `true` when recording meetings through the speakers, so playback doesn't
   bleed into the mic track and get transcribed twice as "me". The trade: while
@@ -121,7 +135,7 @@ quill install --uninstall
   per-process picker if it bothers you).
 - If recordings come out silent, check System Settings → Privacy & Security →
   Screen & System Audio Recording.
-- Parakeet v2 is English-only. Other languages will come with the Whisper
-  engine.
+- Parakeet v2 is English-only, and it fails *silently* on other languages —
+  set `transcription.language` to move to v3 before recording in one.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.

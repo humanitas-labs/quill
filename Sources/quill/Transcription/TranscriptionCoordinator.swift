@@ -140,6 +140,11 @@ actor TranscriptionCoordinator {
         log(dir, "done — \(merged.count) segments")
     }
 
+    /// The engine is built once per drain and released when the queue empties,
+    /// so editing `transcription.language` takes effect on the next batch,
+    /// never mid-batch. That's the wanted behaviour: a drain that started in
+    /// one language finishes in it, and every transcript in the batch records
+    /// the model that actually produced it.
     private func preparedEngine() async throws -> TranscriptionEngine {
         if let engine { return engine }
         let configured = Config.transcriptionEngine()
@@ -148,7 +153,7 @@ actor TranscriptionCoordinator {
                 "warning: unknown transcription engine \"\(configured)\" — using parakeet\n".utf8
             ))
         }
-        let engine = ParakeetEngine()
+        let engine = ParakeetEngine(language: Config.transcriptionLanguage())
         try await engine.prepare()
         self.engine = engine
         return engine
