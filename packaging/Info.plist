@@ -10,6 +10,8 @@
     <string>quill</string>
     <key>CFBundleExecutable</key>
     <string>quill</string>
+    <key>CFBundleIconFile</key>
+    <string>quill</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

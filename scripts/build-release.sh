@@ -39,9 +39,10 @@ swift build -c release
 
 step "Assembling quill.app"
 rm -rf "$APP" "$DMG" "$DMG_STAGE"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 sed "s/@VERSION@/$VERSION/g" "$PLIST_TEMPLATE" > "$APP/Contents/Info.plist"
 cp "$BUILD_BIN" "$APP/Contents/MacOS/quill"
+cp "$ROOT/packaging/quill.icns" "$APP/Contents/Resources/quill.icns"
 xattr -cr "$APP"
 
 step "Codesigning app (hardened runtime + entitlements)"

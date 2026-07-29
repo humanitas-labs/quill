@@ -1,0 +1,21 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0.1" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#2FD6C6"/>
+      <stop offset="1" stop-color="#0C7C86"/>
+    </linearGradient>
+    <linearGradient id="feather" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E6FBF8"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="229" ry="229" fill="url(#bg)"/>
+  <!-- exact feather glyph from the menu bar (MenuBarController.featherSVG) -->
+  <g transform="translate(512,512) scale(34) translate(-11.35,-12.75)"
+     fill="none" stroke="url(#feather)" stroke-width="1.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"/>
+    <path d="M16 8 2 22"/>
+    <path d="M17.5 15H9"/>
+  </g>
+</svg>
