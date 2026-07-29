@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os.lock
 
 /// Records the default input device to a file via AVAudioEngine, encoding AAC
 /// mono. Buffers stream straight to disk — nothing is held in memory, so
@@ -28,15 +29,32 @@ final class MicRecorder: @unchecked Sendable {
     }
 
     private var engine = AVAudioEngine()
-    private var file: AVAudioFile?
     private var url: URL?
     private(set) var isRecording = false
+
+    // Thread-safe shared state: accessed from both the main thread and the
+    // audio-tap callback (background audio thread) without further sync.
+    private struct LockedState {
+        var file: AVAudioFile?
+        var firstBufferAt: Date?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: LockedState())
+
+    private var file: AVAudioFile? {
+        get { state.withLock { $0.file } }
+        set { state.withLock { $0.file = newValue } }
+    }
+
     /// Wall-clock time of the first captured buffer — the track's true start,
     /// used to offset-align the two tracks' transcript timestamps.
-    private(set) var firstBufferAt: Date?
+    private(set) var firstBufferAt: Date? {
+        get { state.withLock { $0.firstBufferAt } }
+        set { state.withLock { $0.firstBufferAt = newValue } }
+    }
 
     // Liveness check state (voice-processing path only). Written from the tap
-    // callback, read on main when deciding to fall back.
+    // callback, read on main when deciding to fall back. The dispatch to main
+    // in fallBackToRaw creates a happens-before, so these need no lock.
     private var livenessFrames = 0
     private var livenessPeak: Float = 0
     private var livenessSettled = false
