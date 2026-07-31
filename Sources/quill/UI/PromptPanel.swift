@@ -133,7 +133,7 @@ final class PromptPanel: NSPanel {
             action: #selector(acceptClicked)
         )
 
-        let stack = NSStackView(views: [AccentWell(diameter: 34), text, dismiss, accept])
+        let stack = NSStackView(views: [Self.icon(diameter: 34), text, dismiss, accept])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .horizontal
         stack.alignment = .centerY
@@ -156,6 +156,25 @@ final class PromptPanel: NSPanel {
         field.maximumNumberOfLines = 1
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
+    }
+
+    /// The feather in a tinted circle. NSImageView already centres an image
+    /// smaller than its bounds, so the circle is just a rounded background on
+    /// the image view itself.
+    private static func icon(diameter: CGFloat) -> NSImageView {
+        let view = NSImageView(image: Feather.image(size: diameter * 0.55) ?? NSImage())
+        view.imageScaling = .scaleNone
+        view.contentTintColor = .controlAccentColor
+        view.wantsLayer = true
+        view.layer?.cornerRadius = diameter / 2
+        view.layer?.backgroundColor = NSColor.controlAccentColor
+            .withAlphaComponent(0.15).cgColor
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.widthAnchor.constraint(equalToConstant: diameter),
+            view.heightAnchor.constraint(equalToConstant: diameter),
+        ])
+        return view
     }
 
     // MARK: - Lifecycle
@@ -264,42 +283,6 @@ private final class PillView: NSVisualEffectView {
     private func applyBorderColor() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.borderColor = NSColor.separatorColor.cgColor
-        }
-    }
-}
-
-/// Tinted circular well holding the quill feather.
-private final class AccentWell: NSView {
-    init(diameter: CGFloat) {
-        super.init(frame: NSRect(x: 0, y: 0, width: diameter, height: diameter))
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = diameter / 2
-        applyFill()
-
-        let icon = NSImageView(image: Feather.image(size: diameter * 0.55) ?? NSImage())
-        icon.contentTintColor = .controlAccentColor
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(icon)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: diameter),
-            heightAnchor.constraint(equalToConstant: diameter),
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyFill()
-    }
-
-    private func applyFill() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
         }
     }
 }

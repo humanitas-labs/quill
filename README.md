@@ -72,8 +72,8 @@ large-v3-turbo) is planned as the fallback / re-transcription option.
 
 Off by default. Set `"meeting_detection": true` and quill watches for anything
 picking up the microphone, then offers to record it with a banner under the
-menu bar — **Record** starts the session exactly as the menu item would,
-**Dismiss** (or ignoring it) does nothing.
+menu bar. **Record** starts the session exactly as the menu item would;
+**Dismiss**, or ignoring it, does nothing.
 
 A recording quill started that way stops itself when the call ends. One you
 started by hand never does — quill shouldn't silently end a recording you
@@ -81,22 +81,24 @@ asked for.
 
 It reads Core Audio's `IsRunningInput` flag, true only while a process holds a
 live input stream. That's the difference between "Teams is running" (all day)
-and "you're in a call", and it needs no permission beyond the mic access quill
-already has — watching windows instead would cost a Screen Recording grant.
-quill ignores its own PID, which is also how an auto-started recording still
-notices the call ending.
+and "you're in a call", and it costs no permission beyond the mic access quill
+already has; watching windows would need a Screen Recording grant. quill
+ignores its own PID, which is also how an auto-started recording notices the
+call ending.
 
-Deliberately no list of meeting apps. A list needs maintaining, mislabels the
-helper processes browsers capture in, and fails *silently* for anything not on
-it. Anything holding the mic counts, and the prompt is named after the
-outermost `.app` owning the process, so a Meet tab reads as "Google Chrome is
-in a call". The trade is on purpose: a prompt you didn't want costs one click,
-a meeting that was never detected costs the recording.
+There's deliberately no list of meeting apps to match against. A list needs
+maintaining, and it mislabels the helper processes browsers capture in. Worse,
+it fails silently for anything missing from it. So anything holding the mic
+counts, and the prompt is named after the outermost `.app` owning the process:
+a Meet tab reads as "Google Chrome is in a call". The cost is that dictation
+or a voice message can prompt you too, which seemed the better way round. A
+prompt you didn't want takes one click; a meeting nobody offered to record is
+just gone.
 
-Something has to hold the mic for ~2 s before you're prompted, so Siri and mic
-tests pass under it. An unanswered prompt disappears ~2 s after the mic frees
-up; an auto-started recording waits ~16 s before stopping, so swapping
-headphones mid-call doesn't end it.
+Something has to hold the mic for about two seconds before you're prompted, so
+short Siri activations pass under it. An unanswered prompt disappears roughly
+two seconds after the mic frees up. An auto-started recording waits about
+sixteen before stopping, so swapping headphones mid-call doesn't end it.
 
 ## Config
 
