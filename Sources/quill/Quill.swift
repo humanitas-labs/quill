@@ -108,7 +108,11 @@ final class AppController {
                 askUser(
                     title: appName.map { "\($0) is in a call" } ?? "Your microphone is in use",
                     body: "Record this meeting?",
-                    button: "Record"
+                    button: "Record",
+                    // "No" holds for this call. A quiet poll clears the
+                    // detector's own record of having asked, so without this a
+                    // brief mic dropout would ask again after you declined.
+                    onDismiss: { [weak self] in self?.detector.declineCurrentMeeting() }
                 ) { [weak self] in
                     // Recording may have started manually while the prompt was up.
                     guard let self, self.session == nil else { return }

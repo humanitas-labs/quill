@@ -1,16 +1,20 @@
 import AppKit
 
-/// Ask the user something with a floating banner. `onAccept` runs only if they
-/// click `button`; dismissing or ignoring it does nothing. Any prompt already
-/// on screen is replaced.
+/// Ask the user something with a floating banner. `onAccept` runs if they click
+/// `button`, `onDismiss` if they actively turn it down. Ignoring the prompt, or
+/// having it retired, runs neither: only a click is an answer. Any prompt
+/// already on screen is replaced.
 @MainActor
 func askUser(
     title: String,
     body: String,
     button: String,
+    onDismiss: @escaping @MainActor () -> Void = {},
     onAccept: @escaping @MainActor () -> Void
 ) {
-    PromptPanel.present(title: title, body: body, button: button, onAccept: onAccept)
+    PromptPanel.present(
+        title: title, body: body, button: button, onDismiss: onDismiss, onAccept: onAccept
+    )
 }
 
 /// Retire the prompt on screen, if any, without accepting it. For when the
@@ -42,16 +46,20 @@ final class PromptPanel: NSPanel {
     private static let sideMargin: CGFloat = 20
 
     private let onAccept: @MainActor () -> Void
+    private let onDismiss: @MainActor () -> Void
     private var autoDismiss: Timer?
 
     static func present(
         title: String,
         body: String,
         button: String,
+        onDismiss: @escaping @MainActor () -> Void,
         onAccept: @escaping @MainActor () -> Void
     ) {
         current?.close()
-        let panel = PromptPanel(heading: title, body: body, button: button, onAccept: onAccept)
+        let panel = PromptPanel(
+            heading: title, body: body, button: button, onDismiss: onDismiss, onAccept: onAccept
+        )
         current = panel
         panel.appear()
     }
@@ -64,9 +72,11 @@ final class PromptPanel: NSPanel {
         heading: String,
         body: String,
         button: String,
+        onDismiss: @escaping @MainActor () -> Void,
         onAccept: @escaping @MainActor () -> Void
     ) {
         self.onAccept = onAccept
+        self.onDismiss = onDismiss
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -240,7 +250,11 @@ final class PromptPanel: NSPanel {
         super.close()
     }
 
-    @objc private func dismissClicked() { fadeOut() }
+    @objc private func dismissClicked() {
+        let dismiss = onDismiss
+        fadeOut()
+        dismiss()
+    }
 
     @objc private func acceptClicked() {
         let accept = onAccept

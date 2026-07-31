@@ -57,6 +57,10 @@ final class MeetingDetector {
     /// prompt is retired unanswered, so a call that drops and comes back gets
     /// asked again rather than silently never being offered.
     private var asked = false
+    /// The user said no to this call. Unlike `asked` this survives a quiet
+    /// gap, because a mic dropout is not permission to ask again; only the
+    /// call actually ending clears it.
+    private var declined = false
     private var loggedPollFailure = false
 
     func start() {
@@ -79,6 +83,13 @@ final class MeetingDetector {
         consecutiveInactive = 0
         inMeeting = false
         asked = false
+        declined = false
+    }
+
+    /// The user dismissed the prompt for the call in progress. Don't ask again
+    /// until it ends.
+    func declineCurrentMeeting() {
+        declined = true
     }
 
     // MARK: -
@@ -96,6 +107,7 @@ final class MeetingDetector {
             guard consecutiveInactive >= Self.quietPollsToEnd else { return }
             consecutiveInactive = 0
             inMeeting = false
+            declined = false
             onMeetingEnd?()
             return
         }
@@ -103,7 +115,7 @@ final class MeetingDetector {
         consecutiveActive += 1
         guard consecutiveActive >= Self.activePollsToPrompt else { return }
         inMeeting = true
-        guard !asked else { return }
+        guard !asked, !declined else { return }
         asked = true
         onMeetingStart?(capturing.flatMap { Self.appName(forPID: $0.pid) })
     }
