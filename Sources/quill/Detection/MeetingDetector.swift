@@ -142,21 +142,31 @@ final class MeetingDetector {
             pidProperty(capturing.object) == capturing.pid {
             return true
         }
+        // The gate said someone is capturing but nobody we know of is. Scan.
         for object in processObjects() {
             guard uint32Property(object, kAudioProcessPropertyIsRunningInput) == 1 else { continue }
             // quill's own MicRecorder makes quill a capturing process; ignoring
-            // it is what lets an auto-started recording notice the call ending.
+            // it is what lets a prompt-started recording notice the call ending.
             guard let pid = pidProperty(object), pid != ownPID else { continue }
             capturing = (object, pid)
             return true
         }
+        // The gate can sit open for something we don't care about: playback on
+        // a duplex device also answers yes. Backing off the scan would cut the
+        // cost of that, but every poll it skips is added to how long a real
+        // call waits for its prompt, so the scan pays it instead.
         capturing = nil
         return false
     }
 
-    /// Whether any input device is running for anyone. Unlike the per-process
-    /// properties this isn't tripped by playback: devices with no input streams
-    /// are skipped, so music on the built-in speakers still answers "no".
+    /// Whether any device that can capture is running for anyone.
+    ///
+    /// `DeviceIsRunningSomewhere` is global, not input-direction: on a device
+    /// with both input and output streams, output-only playback also answers
+    /// yes. Filtering to devices that have input streams keeps ordinary
+    /// speaker playback out of it, but a duplex device (a USB interface, a
+    /// virtual driver) still holds this open while it plays. That costs a scan
+    /// rather than a wrong answer, since the per-process check runs after it.
     private func anyInputDeviceRunning() -> Bool {
         for device in deviceObjects() where hasInputStreams(device) {
             if uint32Property(device, kAudioDevicePropertyDeviceIsRunningSomewhere) == 1 {
