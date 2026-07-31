@@ -236,7 +236,7 @@ final class MeetingDetector {
     }
 
     /// A failing poll is "nobody is on a call" — reported once, then silent, so
-    /// a permanently unhappy Core Audio can't spam the log every 2 seconds.
+    /// a permanently unhappy Core Audio can't write a line every second.
     private func logPollFailure(_ what: String, _ status: OSStatus) -> [AudioObjectID] {
         if !loggedPollFailure {
             loggedPollFailure = true
