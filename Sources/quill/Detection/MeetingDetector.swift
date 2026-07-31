@@ -49,7 +49,14 @@ final class MeetingDetector {
     private var capturing: (object: AudioObjectID, pid: pid_t)?
     private var consecutiveActive = 0
     private var consecutiveInactive = 0
-    private var promptedThisMeeting = false
+    /// Capture has been confirmed and not yet declared over. Drives the end
+    /// detection, and outlives the prompt: the mic can drop for a moment
+    /// mid-call without the call being over.
+    private var inMeeting = false
+    /// We've put the question to the user and it still stands. Cleared when a
+    /// prompt is retired unanswered, so a call that drops and comes back gets
+    /// asked again rather than silently never being offered.
+    private var asked = false
     private var loggedPollFailure = false
 
     func start() {
@@ -70,20 +77,25 @@ final class MeetingDetector {
     private func poll() {
         guard someoneElseIsCapturing() else {
             consecutiveActive = 0
-            // Nothing was ever reported as started, so there is nothing to end.
-            guard promptedThisMeeting else { return }
+            // No meeting was ever reported, so there is nothing to end.
+            guard inMeeting else { return }
             consecutiveInactive += 1
-            if consecutiveInactive == Self.quietPollsToRetire { onMeetingQuiet?() }
+            if consecutiveInactive == Self.quietPollsToRetire {
+                asked = false
+                onMeetingQuiet?()
+            }
             guard consecutiveInactive >= Self.quietPollsToEnd else { return }
             consecutiveInactive = 0
-            promptedThisMeeting = false
+            inMeeting = false
             onMeetingEnd?()
             return
         }
         consecutiveInactive = 0
         consecutiveActive += 1
-        guard consecutiveActive >= Self.activePollsToPrompt, !promptedThisMeeting else { return }
-        promptedThisMeeting = true
+        guard consecutiveActive >= Self.activePollsToPrompt else { return }
+        inMeeting = true
+        guard !asked else { return }
+        asked = true
         onMeetingStart?(capturing.flatMap { Self.appName(forPID: $0.pid) })
     }
 
