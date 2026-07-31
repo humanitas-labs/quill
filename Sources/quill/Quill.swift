@@ -81,8 +81,15 @@ final class AppController {
     private let root: URL
     private let menuBar = MenuBarController()
     private let transcription = TranscriptionCoordinator()
+    private let detector = MeetingDetector()
     private var session: RecordingSession?
     private var ticker: Timer?
+    /// Whether the live session was started by the meeting prompt rather than
+    /// by hand. Only those stop themselves when the call ends — silently
+    /// ending a recording someone started deliberately would lose audio they
+    /// asked for.
+    private var autoStarted = false
+    private var detectionEnabled = false
 
     init(root: URL) {
         self.root = root
@@ -90,6 +97,39 @@ final class AppController {
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(recording: false, elapsed: nil)
+
+        detectionEnabled = Config.meetingDetectionEnabled()
+        if detectionEnabled {
+            detector.onMeetingStart = { [weak self] appName in
+                let who = appName ?? "Your microphone"
+                FileHandle.standardError.write(Data("◆ \(who) is in use\n".utf8))
+                // Already recording: nothing to offer.
+                guard let self, self.session == nil else { return }
+                askUser(
+                    title: appName.map { "\($0) is in a call" } ?? "Your microphone is in use",
+                    body: "Record this meeting?",
+                    button: "Record",
+                    // "No" holds for this call. A quiet poll clears the
+                    // detector's own record of having asked, so without this a
+                    // brief mic dropout would ask again after you declined.
+                    onDismiss: { [weak self] in self?.detector.declineCurrentMeeting() }
+                ) { [weak self] in
+                    // Recording may have started manually while the prompt was up.
+                    guard let self, self.session == nil else { return }
+                    self.startSession(auto: true)
+                }
+            }
+            // An unanswered prompt outlives the call it asked about (it sits
+            // for two minutes). Accepting it then would start a session no
+            // later end event could stop, so it goes as soon as the mic frees.
+            detector.onMeetingQuiet = { retirePrompt() }
+            detector.onMeetingEnd = { [weak self] in
+                guard let self, self.session != nil, self.autoStarted else { return }
+                FileHandle.standardError.write(Data("◇ call ended\n".utf8))
+                self.stopSession()
+            }
+            detector.start()
+        }
 
         Task { [transcription, root] in
             await transcription.setStatusHandler { status in
@@ -104,6 +144,7 @@ final class AppController {
     /// Stop any live session cleanly (finalizing files) and exit.
     func shutdown() {
         stopSession()
+        detector.stop()
         NSApp.terminate(nil)
     }
 
@@ -115,11 +156,25 @@ final class AppController {
         }
     }
 
-    private func startSession() {
+    private func startSession(auto: Bool = false) {
         do {
             let newSession = try RecordingSession(root: root)
             try newSession.start()
             session = newSession
+            autoStarted = auto
+            if !auto {
+                // Started from the menu, so any prompt on screen is offering
+                // something we're already doing — and the pause below would
+                // strand it there for its full two-minute timeout. (The pill's
+                // own Record button has already faded itself by this point.)
+                retirePrompt()
+                // Holding the mic ourselves makes every audio client look
+                // busy, so the detector would scan all of them once a second
+                // to answer a question we'd ignore anyway: a call starting
+                // can't prompt while a session is live. An auto-started
+                // session keeps it, to notice the call it came from ending.
+                detector.stop()
+            }
             FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
         } catch {
             FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
@@ -141,6 +196,8 @@ final class AppController {
             "○ stopped · \(elapsed) · \(session.dir.path)\n".utf8
         ))
         self.session = nil
+        autoStarted = false
+        if detectionEnabled { detector.start() }
         ticker?.invalidate()
         ticker = nil
         menuBar.update(recording: false, elapsed: nil)
