@@ -67,9 +67,18 @@ final class MeetingDetector {
         }
     }
 
+    /// Stops polling and forgets everything observed so far. The state has to
+    /// go: nothing watched the mic while we were stopped, so a stale `asked`
+    /// would suppress the prompt for a call that began in the gap, and a stale
+    /// `inMeeting` would end a call that was already over.
     func stop() {
         timer?.invalidate()
         timer = nil
+        capturing = nil
+        consecutiveActive = 0
+        consecutiveInactive = 0
+        inMeeting = false
+        asked = false
     }
 
     // MARK: -
