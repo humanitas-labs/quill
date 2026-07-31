@@ -68,6 +68,36 @@ on next launch (the filesystem is the queue: a session with `meta.json` but no
 The engine sits behind a small protocol; a Whisper engine (WhisperKit
 large-v3-turbo) is planned as the fallback / re-transcription option.
 
+## Meeting detection
+
+Off by default. Set `"meeting_detection": true` and quill watches for anything
+picking up the microphone, then offers to record it with a banner under the
+menu bar — **Record** starts the session exactly as the menu item would,
+**Dismiss** (or ignoring it) does nothing.
+
+A recording quill started that way stops itself when the call ends. One you
+started by hand never does — quill shouldn't silently end a recording you
+asked for.
+
+It reads Core Audio's `IsRunningInput` flag, true only while a process holds a
+live input stream. That's the difference between "Teams is running" (all day)
+and "you're in a call", and it needs no permission beyond the mic access quill
+already has — watching windows instead would cost a Screen Recording grant.
+quill ignores its own PID, which is also how an auto-started recording still
+notices the call ending.
+
+Deliberately no list of meeting apps. A list needs maintaining, mislabels the
+helper processes browsers capture in, and fails *silently* for anything not on
+it. Anything holding the mic counts, and the prompt is named after the
+outermost `.app` owning the process, so a Meet tab reads as "Google Chrome is
+in a call". The trade is on purpose: a prompt you didn't want costs one click,
+a meeting that was never detected costs the recording.
+
+Something has to hold the mic for ~2 s before you're prompted, so Siri and mic
+tests pass under it. An unanswered prompt disappears ~2 s after the mic frees
+up; an auto-started recording waits ~16 s before stopping, so swapping
+headphones mid-call doesn't end it.
+
 ## Config
 
 Optional, at `~/.config/quill/config.json`:
@@ -76,6 +106,7 @@ Optional, at `~/.config/quill/config.json`:
 {
   "recordings_dir": "~/Recordings",
   "transcription": { "enabled": true, "engine": "parakeet" },
+  "meeting_detection": true,
   "on_stop": "my-hook"
 }
 ```
@@ -83,6 +114,8 @@ Optional, at `~/.config/quill/config.json`:
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
+- `meeting_detection` — offer to record when a meeting app takes the mic
+  (default off). See above.
 - `mic_voice_processing` — Apple's echo cancellation on the mic (default off).
   Set `true` when recording meetings through the speakers, so playback doesn't
   bleed into the mic track and get transcribed twice as "me". The trade: while

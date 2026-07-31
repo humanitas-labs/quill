@@ -6,6 +6,7 @@ import Foundation
 ///       "recordings_dir": "~/Recordings",
 ///       "transcription": { "enabled": true, "engine": "parakeet" },
 ///       "mic_voice_processing": true,
+///       "meeting_detection": true,
 ///       "on_stop": "my-hook"
 ///     }
 ///
@@ -46,6 +47,12 @@ enum Config {
 
     private static func transcription() -> [String: Any]? {
         load()?["transcription"] as? [String: Any]
+    }
+
+    /// Whether quill offers to record when something else starts using the
+    /// mic. Opt-in — omit the key and nothing watches your microphone.
+    static func meetingDetectionEnabled() -> Bool {
+        load()?["meeting_detection"] as? Bool ?? false
     }
 
     /// Apple voice processing (acoustic echo cancellation) on the mic, so
