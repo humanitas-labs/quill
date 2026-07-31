@@ -53,14 +53,14 @@ final class MeetingDetector {
     /// detection, and outlives the prompt: the mic can drop for a moment
     /// mid-call without the call being over.
     private var inMeeting = false
-    /// We've put the question to the user and it still stands. Cleared when a
-    /// prompt is retired unanswered, so a call that drops and comes back gets
-    /// asked again rather than silently never being offered.
-    private var asked = false
-    /// The user said no to this call. Unlike `asked` this survives a quiet
-    /// gap, because a mic dropout is not permission to ask again; only the
-    /// call actually ending clears it.
-    private var declined = false
+    /// The process we have already asked about. Held by pid, like the decline
+    /// below, because the question is about one specific call: if the mic
+    /// passes straight from one app to another there is no quiet gap to clear
+    /// a plain flag, and the second app would never be offered.
+    private var askedPID: pid_t?
+    /// The process the user said no to. A dropout of that same process stays
+    /// declined, but a different app taking the mic is a different call.
+    private var declinedPID: pid_t?
     private var loggedPollFailure = false
 
     func start() {
@@ -82,14 +82,14 @@ final class MeetingDetector {
         consecutiveActive = 0
         consecutiveInactive = 0
         inMeeting = false
-        asked = false
-        declined = false
+        askedPID = nil
+        declinedPID = nil
     }
 
-    /// The user dismissed the prompt for the call in progress. Don't ask again
-    /// until it ends.
+    /// The user dismissed the prompt for whoever holds the mic right now.
+    /// Don't ask again for that process.
     func declineCurrentMeeting() {
-        declined = true
+        declinedPID = capturing?.pid
     }
 
     // MARK: -
@@ -101,13 +101,13 @@ final class MeetingDetector {
             guard inMeeting else { return }
             consecutiveInactive += 1
             if consecutiveInactive == Self.quietPollsToRetire {
-                asked = false
+                askedPID = nil
                 onMeetingQuiet?()
             }
             guard consecutiveInactive >= Self.quietPollsToEnd else { return }
             consecutiveInactive = 0
             inMeeting = false
-            declined = false
+            declinedPID = nil
             onMeetingEnd?()
             return
         }
@@ -115,9 +115,11 @@ final class MeetingDetector {
         consecutiveActive += 1
         guard consecutiveActive >= Self.activePollsToPrompt else { return }
         inMeeting = true
-        guard !asked, !declined else { return }
-        asked = true
-        onMeetingStart?(capturing.flatMap { Self.appName(forPID: $0.pid) })
+        // Ask once per capturing process: not again for one already asked
+        // about, and never for one the user turned down.
+        guard let pid = capturing?.pid, pid != askedPID, pid != declinedPID else { return }
+        askedPID = pid
+        onMeetingStart?(Self.appName(forPID: pid))
     }
 
     /// Whether any process except quill is holding an input stream.
