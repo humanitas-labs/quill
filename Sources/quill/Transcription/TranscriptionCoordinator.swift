@@ -130,6 +130,14 @@ actor TranscriptionCoordinator {
         }
         merged.sort { $0.start_ms < $1.start_ms }
 
+        if Config.transcriptEchoFilter() {
+            let before = merged.count
+            merged = EchoFilter.dropEchoes(merged)
+            if merged.count != before {
+                log(dir, "echo filter dropped \(before - merged.count) mic segment(s) duplicating system audio")
+            }
+        }
+
         let transcript = Transcript(
             engine: engine.name,
             model: engine.model,
@@ -231,7 +239,7 @@ private struct SessionMeta {
 
 /// Canonical transcript. Property names are the JSON schema — this struct
 /// exists to be serialized.
-private struct Transcript: Codable {
+struct Transcript: Codable {
     struct Segment: Codable {
         let speaker: String
         let start_ms: Int

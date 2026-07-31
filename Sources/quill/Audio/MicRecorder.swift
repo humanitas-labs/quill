@@ -5,9 +5,9 @@ import Foundation
 /// mono. Buffers stream straight to disk — nothing is held in memory, so
 /// session length is unbounded.
 ///
-/// With voice processing on (the default), Apple's echo canceller subtracts
-/// speaker playback from the mic so the system track doesn't bleed into the
-/// mic track. VoiceProcessingIO is a duplex unit, not an input effect: it
+/// With voice processing on (`mic_voice_processing`, off by default), Apple's
+/// echo canceller subtracts speaker playback from the mic so the system track
+/// doesn't bleed into the mic track. VoiceProcessingIO is a duplex unit, not an input effect: it
 /// needs a rendered output path and one explicit mono client format on both
 /// sides, or it silently delivers zeroed buffers (rca-001). A first-second
 /// liveness check catches routes where even the correct graph stays silent

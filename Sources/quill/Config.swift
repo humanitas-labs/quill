@@ -6,6 +6,7 @@ import Foundation
 ///       "recordings_dir": "~/Recordings",
 ///       "transcription": { "enabled": true, "engine": "parakeet" },
 ///       "mic_voice_processing": true,
+///       "transcript_echo_filter": true,
 ///       "on_stop": "my-hook"
 ///     }
 ///
@@ -55,6 +56,14 @@ enum Config {
     /// recording meetings through the speakers.
     static func micVoiceProcessing() -> Bool {
         load()?["mic_voice_processing"] as? Bool ?? false
+    }
+
+    /// Whether the transcript merge drops mic segments that duplicate
+    /// overlapping system speech — the echo of a meeting played through the
+    /// speakers into a raw mic. Costs nothing when there's no echo. Set false
+    /// to keep every segment from both tracks.
+    static func transcriptEchoFilter() -> Bool {
+        load()?["transcript_echo_filter"] as? Bool ?? true
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather

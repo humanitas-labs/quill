@@ -89,6 +89,11 @@ Optional, at `~/.config/quill/config.json`:
   the voice unit is live, macOS ducks other playback slightly (`.min` ducking
   is configured, but it can't be zeroed). On headphones there's no echo to
   cancel, so raw capture is the better default.
+- `transcript_echo_filter` — drop mic segments that duplicate overlapping
+  system speech at transcript-merge time (default on). This is the text-level
+  guard for sessions recorded raw through speakers: without echo cancellation
+  the far end lands on both tracks and every sentence appears twice. Costs
+  nothing when there's no echo; set `false` to keep every segment.
 - `on_stop` — shell command spawned with the session directory as its
   argument, **after the transcript is written** (or right after recording if
   transcription is disabled). Wire it to whatever comes next: summarization,
