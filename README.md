@@ -14,7 +14,7 @@ Swift binary, menu-bar tray, no app bundle.
 cd quill
 swift build -c release
 sudo cp .build/release/quill /usr/local/bin/quill
-quill install --launch-at-login   # optional — runs in the background on login
+quill install --launch-at-login   # required for system audio — see Gotchas
 ```
 
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
@@ -23,7 +23,9 @@ transcription speed.
 
 ## How to use
 
-1. **Run it** (`quill` in a terminal, or the LaunchAgent).
+1. **Run it** via the LaunchAgent (`quill install --launch-at-login`). Running
+   `quill` from a terminal records the mic fine, but the system-audio track
+   comes out silent — see Gotchas.
 2. **Click the feather in the menu bar → Start recording.** First use prompts
    for microphone and System Audio Recording permissions. While recording, the
    icon turns red with a running elapsed counter, and macOS shows the purple
@@ -119,8 +121,16 @@ quill install --uninstall
 - A global tap records *everything* the Mac plays — notification dings,
   music, all of it. Don't play Spotify during meetings (or ask for a
   per-process picker if it bothers you).
-- If recordings come out silent, check System Settings → Privacy & Security →
-  Screen & System Audio Recording.
+- **`system.caf` is silent unless quill runs as a LaunchAgent.** Launched from
+  a terminal, quill's TCC request is attributed to the terminal rather than to
+  quill, so the process tap is created successfully and then delivers nothing
+  but zeros — no error, no prompt, a full-length silent file. Under launchd
+  quill is its own responsible process, macOS prompts by name, and capture
+  works. See `.issues/rca-002-system-tap-silent-outside-launchagent.md`.
+- Note that system audio is gated on the **System Audio Recording Only** list
+  in System Settings → Privacy & Security, not on Screen Recording. A Screen
+  Recording grant does not cover it, and a bare binary can't be added to either
+  list by hand — the LaunchAgent is what makes the prompt appear.
 - Parakeet v2 is English-only. Other languages will come with the Whisper
   engine.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
