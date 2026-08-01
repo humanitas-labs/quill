@@ -146,27 +146,42 @@ the configuration that determines it. A process launched by launchd has `PPID`
 1; when quill is running any other way, doctor can warn that system audio will
 not be captured regardless of granted permissions.
 
-**Re-sign during install** — pending the open question below.
+**Do not add a re-signing step.** It was the obvious candidate fix and it turns
+out to be unnecessary — see below. Binding the Info.plist is still arguably
+worth doing so `CFBundleIdentifier` survives into the signature, but it fixes
+nothing on its own and should not be sold as the remedy for silent capture.
 
-## Open question
+## Is re-signing required? No.
 
-Whether defect 1 must be fixed for defect 2's fix to work is **untested**. The
-verified-good configuration is LaunchAgent *plus* a re-signed binary. The
-combination of LaunchAgent plus the stock linker-signed binary was never run,
-so it is unknown whether launchd alone is sufficient.
+Tested directly. A stock `swift build -c release` binary — `linker-signed`,
+`Identifier=quill`, `Info.plist=not bound`, no modification of any kind — was
+installed to `/usr/local/bin/quill` and the LaunchAgent restarted so the new
+image was actually loaded. A permission prompt was approved, and the next
+recording captured system audio at −0.6 dB peak across 54.6% non-zero samples.
 
-This determines the shape of the install instructions, so it is worth resolving
-before writing them:
+| binary | launched by | system peak |
+|---|---|---|
+| re-signed, Info.plist bound | LaunchAgent | −1.6 dB |
+| **stock, linker-signed, not bound** | **LaunchAgent** | **−0.6 dB** |
 
-1. Reset the grant: `tccutil reset SystemAudioCapture com.digimata.quill`.
-2. Install a stock `swift build` binary, unmodified, with `Info.plist=not bound`.
-3. Bootstrap it as a LaunchAgent and start a recording.
-4. If macOS prompts naming "quill" and the track has signal, launchd alone is
-   sufficient and the README needs no `codesign` step. If it stays silent or the
-   prompt names something else, the install recipe must re-sign.
+So defect 1 is real but not load-bearing. The LaunchAgent is the necessary and
+sufficient condition, and **the install recipe needs no `codesign` step**. This
+is the more useful outcome: it means the fix is documentation plus a liveness
+check, with no change to how the binary is produced.
 
-The second outcome is more likely — TCC has no identity to name without a bound
-`CFBundleIdentifier` — but it has not been demonstrated.
+Note that `tccutil reset AudioCapture com.digimata.quill` cannot be used to get
+a clean slate here — `tccutil` resolves bundle identifiers through
+LaunchServices, which does not know a bare binary, and returns OSStatus -10814.
+Only a service-wide reset works, which revokes every other app's grant too.
+
+**Residual uncertainty.** The grant used by the stock binary was approved while
+that path had already been overwritten with the stock binary, but while the
+previously-granted signed image was still the running process. Whether TCC keyed
+that grant to the code signature or to the executable path was therefore not
+isolated, and this machine had prior quill grant history at the same path. On a
+machine that has never granted quill, the prompt may behave differently. What is
+demonstrated is the practical claim: a stock binary under launchd obtains and
+uses a working system-audio grant.
 
 ## Relevant files
 
