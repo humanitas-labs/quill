@@ -51,8 +51,8 @@ written is still readable.
 
 ## Transcription
 
-Built in, on-device, automatic. The default engine is **Parakeet TDT 0.6B v2**
-(English) via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s
+Built in, on-device, automatic. The default engine is **Parakeet TDT 0.6B v3**
+(multilingual) via [FluidAudio](https://github.com/FluidInference/FluidAudio)'s
 Core ML port — roughly 20 seconds per hour of audio on Apple Silicon. Models
 (~600 MB) download once on first transcription; `quill doctor` tells you
 whether they're already cached so you're never downloading after an important
@@ -121,7 +121,7 @@ quill install --uninstall
   per-process picker if it bothers you).
 - If recordings come out silent, check System Settings → Privacy & Security →
   Screen & System Audio Recording.
-- Parakeet v2 is English-only. Other languages will come with the Whisper
-  engine.
+- Parakeet v3 covers 25 European languages. For anything outside that set,
+  wait for the Whisper engine.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.
