@@ -1,0 +1,43 @@
+# typed: strict
+# frozen_string_literal: true
+
+# Homebrew formula for the quill macOS recorder and transcriber.
+class Quill < Formula
+  desc "Local macOS meeting recorder and on-device transcriber"
+  homepage "https://github.com/@REPOSITORY@"
+  url "https://github.com/@REPOSITORY@/releases/download/v@VERSION@/SHA256SUMS", using: :nounzip
+  version "@VERSION@"
+  sha256 "@MANIFEST_SHA256@"
+  license "MIT"
+  depends_on macos: :sequoia
+
+  resource "binary" do
+    on_arm do
+      url "https://github.com/@REPOSITORY@/releases/download/v@VERSION@/quill-macos-arm64.tar.gz"
+      sha256 "@ARM64_SHA256@"
+    end
+
+    on_intel do
+      url "https://github.com/@REPOSITORY@/releases/download/v@VERSION@/quill-macos-x86_64.tar.gz"
+      sha256 "@X86_64_SHA256@"
+    end
+  end
+
+  def install
+    resource("binary").stage { bin.install "quill" }
+  end
+
+  def caveats
+    <<~EOS
+      Before the first recording, check permissions and model availability:
+        quill doctor
+
+      To start quill automatically when you sign in:
+        quill install --launch-at-login
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/quill --version")
+  end
+end

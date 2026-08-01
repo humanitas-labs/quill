@@ -1,25 +1,69 @@
 # quill
 
+[![CI](https://github.com/digimata/quill/actions/workflows/ci.yml/badge.svg)](https://github.com/digimata/quill/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/digimata/quill)](https://github.com/digimata/quill/releases/latest)
+
 A minimal, fully local macOS meeting recorder + transcriber. One menu-bar
 click records your mic and all system audio as two separate tracks; when you
 stop, quill transcribes both on-device and writes a speaker-tagged transcript.
 Nothing ever leaves the machine.
 
-Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot), same skeleton: single
-Swift binary, menu-bar tray, no app bundle.
+Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot),
+same skeleton: single Swift binary, menu-bar tray, no app bundle.
 
 ## Install
 
+### Homebrew (recommended)
+
 ```sh
+brew tap digimata/quill https://github.com/digimata/quill
+brew install digimata/quill/quill
+quill doctor
+```
+
+The custom tap lives in this repository. Each version tag publishes native
+Apple Silicon and Intel binaries, then updates the formula with their verified
+SHA-256 checksums.
+
+Start quill from a terminal:
+
+```sh
+quill
+```
+
+Or register its per-user LaunchAgent so it starts when you sign in:
+
+```sh
+quill install --launch-at-login
+```
+
+### Build from source
+
+You need macOS 15 or later, Xcode 16 or later (or matching Command Line Tools),
+and Swift 6:
+
+```sh
+git clone https://github.com/digimata/quill.git
 cd quill
 swift build -c release
 sudo cp .build/release/quill /usr/local/bin/quill
-quill install --launch-at-login   # optional — runs in the background on login
+quill doctor
 ```
 
-**Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension). Apple Silicon recommended for
-transcription speed.
+If `/usr/local/bin` is not on your `PATH`, install the binary into another
+directory that is. Apple Silicon is recommended for transcription speed.
+
+### Uninstall
+
+Remove the login item before removing the binary:
+
+```sh
+quill install --uninstall
+brew uninstall quill
+```
+
+Recordings and config are deliberately left in place. Delete
+`~/Recordings` and `~/.config/quill` yourself only if you no longer need them.
 
 ## How to use
 
@@ -114,6 +158,20 @@ quill install --uninstall
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **NSStatusItem** — the whole UI
 
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the development setup, project layout, validation checklist, and release
+process. Please never attach a real private meeting recording to an issue;
+use a short synthetic sample when audio is needed to reproduce a bug.
+
+## Releases
+
+quill follows semantic versioning while the CLI and transcript formats settle.
+A tag such as `v0.1.0` triggers builds on native Apple Silicon and Intel GitHub
+runners, publishes both archives plus `SHA256SUMS`, and refreshes the Homebrew
+formula. See [CHANGELOG.md](CHANGELOG.md) for user-visible changes.
+
 ## Gotchas
 
 - A global tap records *everything* the Mac plays — notification dings,
@@ -125,3 +183,7 @@ quill install --uninstall
   engine.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
   attribute permissions to quill itself when running as a LaunchAgent.
+
+## License
+
+[MIT](LICENSE)

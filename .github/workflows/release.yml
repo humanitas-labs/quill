@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Package (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          ./scripts/package-release.sh "$version" "${{ matrix.architecture }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quill-macos-${{ matrix.architecture }}
+          path: dist/quill-macos-${{ matrix.architecture }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release and Homebrew formula
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum quill-macos-*.tar.gz > SHA256SUMS
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/quill-macos-*.tar.gz dist/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/quill-macos-*.tar.gz dist/SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "quill ${GITHUB_REF_NAME#v}"
+          fi
+
+      - name: Update Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          manifest_sha256="$(sha256sum dist/SHA256SUMS | cut -d' ' -f1)"
+          arm64_sha256="$(sha256sum dist/quill-macos-arm64.tar.gz | cut -d' ' -f1)"
+          x86_64_sha256="$(sha256sum dist/quill-macos-x86_64.tar.gz | cut -d' ' -f1)"
+          ./scripts/render-homebrew-formula.sh \
+            "$version" "$GITHUB_REPOSITORY" "$manifest_sha256" \
+            "$arm64_sha256" "$x86_64_sha256"
+
+      - name: Commit Homebrew formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add Formula/quill.rb
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(homebrew): update quill to ${GITHUB_REF_NAME#v}"
+          git pull --rebase origin "${{ github.event.repository.default_branch }}"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

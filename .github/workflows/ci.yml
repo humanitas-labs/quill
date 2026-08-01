@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build --configuration release --arch "${{ matrix.architecture }}"
+
+      - name: Verify version command and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$(swift build --configuration release --arch '${{ matrix.architecture }}' --show-bin-path)/quill"
+          test "$("$binary" --version)" = "$(sed -n 's/.*static let current = "\([^"]*\)".*/\1/p' Sources/quill/Version.swift)"
+          lipo -archs "$binary" | tr ' ' '\n' | grep -qx '${{ matrix.architecture }}'

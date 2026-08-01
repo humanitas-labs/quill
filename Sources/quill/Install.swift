@@ -4,8 +4,8 @@ import Foundation
 /// Manage quill's LaunchAgent so the daemon starts at login.
 ///
 /// We deliberately do NOT use SMAppService.mainApp here — that requires a full
-/// .app bundle. Since quill ships as a single binary in /usr/local/bin, a
-/// plain LaunchAgent plist is the simpler, more honest mechanism.
+/// .app bundle. Since quill ships as a single command-line binary, a plain
+/// LaunchAgent plist is the simpler, more honest mechanism.
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Install or remove the launch-at-login LaunchAgent."
@@ -95,24 +95,54 @@ struct Install: ParsableCommand {
     }
 
     private func resolveBinaryPath() throws -> String {
-        // /usr/local/bin/quill is the canonical install path. Honor a real
-        // location if running from elsewhere (e.g. dev).
-        let candidate = "/usr/local/bin/quill"
-        if FileManager.default.isExecutableFile(atPath: candidate) {
+        // Keep the path the user invoked whenever possible. In particular,
+        // this preserves Homebrew's stable /opt/homebrew/bin symlink instead
+        // of resolving it into a versioned Cellar path that breaks on upgrade.
+        let argv0 = CommandLine.arguments.first ?? "quill"
+        if argv0.contains("/") {
+            let workingDirectory = URL(
+                fileURLWithPath: FileManager.default.currentDirectoryPath,
+                isDirectory: true
+            )
+            let invokedPath = URL(fileURLWithPath: argv0, relativeTo: workingDirectory)
+                .standardizedFileURL.path
+            if FileManager.default.isExecutableFile(atPath: invokedPath) {
+                return invokedPath
+            }
+        }
+
+        // Shells do not have to pass an absolute argv[0]. Resolve the command
+        // against PATH so Homebrew, MacPorts, and developer installs work.
+        if let resolved = resolveOnPath(argv0) {
+            return resolved
+        }
+
+        // Common stable install paths are useful when argv[0] is unusual
+        // (for example when another process launches quill directly).
+        for candidate in ["/opt/homebrew/bin/quill", "/usr/local/bin/quill"]
+        where FileManager.default.isExecutableFile(atPath: candidate) {
             return candidate
         }
-        // Fall back to the running executable's resolved path.
-        let argv0 = CommandLine.arguments.first ?? "quill"
-        if argv0.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: argv0) {
-            FileHandle.standardError.write(Data(
-                "note: /usr/local/bin/quill not found; using \(argv0)\n".utf8
-            ))
-            return argv0
-        }
+
         FileHandle.standardError.write(Data(
-            "couldn't locate the quill binary. install it to /usr/local/bin/quill first.\n".utf8
+            "couldn't locate the quill binary. install it with Homebrew or copy it into a directory on PATH first.\n".utf8
         ))
         throw ExitCode(1)
+    }
+
+    private func resolveOnPath(_ command: String) -> String? {
+        guard !command.contains("/") else { return nil }
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for directory in path.split(separator: ":", omittingEmptySubsequences: false) {
+            let base = directory.isEmpty ? FileManager.default.currentDirectoryPath : String(directory)
+            let candidate = URL(fileURLWithPath: base, isDirectory: true)
+                .appendingPathComponent(command)
+                .standardizedFileURL.path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func uid() -> uid_t { getuid() }
