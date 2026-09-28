@@ -40,20 +40,7 @@ actor TranscriptionCoordinator {
     /// oldest-first is a name sort.
     func resumePending(root: URL) {
         guard Config.transcriptionEnabled() else { return }
-        guard
-            let entries = try? FileManager.default.contentsOfDirectory(
-                at: root, includingPropertiesForKeys: nil
-            )
-        else { return }
-
-        let fm = FileManager.default
-        let pending =
-            entries
-            .filter {
-                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
-                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
-            }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let pending = Self.pendingSessions(in: root)
         for dir in pending where !queue.contains(dir) {
             queue.append(dir)
         }
@@ -64,6 +51,25 @@ actor TranscriptionCoordinator {
                 ))
         }
         drainIfIdle()
+    }
+
+    /// The same filesystem predicate used on launch; kept separate so a
+    /// failed transcript write can be checked without loading an ASR model.
+    nonisolated static func pendingSessions(in root: URL) -> [URL] {
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: nil
+            )
+        else { return [] }
+
+        let fm = FileManager.default
+        return
+            entries
+            .filter {
+                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
+                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     // MARK: -
@@ -219,19 +225,18 @@ struct Transcript: Codable {
         }
     }
 
-    /// Write transcript.json and render transcript.md. Both writes are atomic
-    /// (temp file + rename), so a partially written transcript never exists on
-    /// disk — resumePending treats presence of transcript.json as "done".
+    /// Render transcript.md before writing transcript.json. Each write is
+    /// atomic, and JSON is the completion marker used by resumePending.
     /// `captureStatus` (v2 sessions only) is persisted in the readable header
     /// so an incomplete recording stays visibly incomplete after the
     /// transient notification disappears.
     func write(to dir: URL, captureStatus: TrackStatus? = nil) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self)
-            .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
         try Data(rendered(title: dir.lastPathComponent, captureStatus: captureStatus).utf8)
             .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
+        try encoder.encode(self)
+            .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
     }
 
     func rendered(title: String, captureStatus: TrackStatus? = nil) -> String {

@@ -216,9 +216,13 @@ final class SystemAudioRecorder: TrackRecorder, @unchecked Sendable {
 
     private func makeFile(url: URL, format: AVAudioFormat) throws -> AVAudioFile {
         let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            // Fixed-size PCM packets survive an unclean process exit.
+            AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: format.sampleRate,
             AVNumberOfChannelsKey: format.channelCount,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsNonInterleaved: false,
         ]
         do {
             return try AVAudioFile(

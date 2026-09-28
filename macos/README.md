@@ -43,9 +43,10 @@ Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
 
 | File | Contents |
 |---|---|
-| `mic.caf` | your side (default input device, AAC) |
-| `system.caf` | everything the Mac played — the other side of the call (AAC) |
+| `mic.caf` | your side (default input device, 16-bit PCM) |
+| `system.caf` | everything the Mac played — the other side of the call (16-bit PCM) |
 | `mic-002.caf`, `system-002.caf`, … | additional segments, present only if capture had to restart mid-session (see below) |
+| `in-progress.json` | temporary segment list while recording; removed after `meta.json` is written |
 | `meta.json` | start/end timestamps, duration, per-track segments/offsets, and capture status (`complete`/`recovered`/`incomplete`) |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |
@@ -53,9 +54,10 @@ Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
 
 Two tracks on purpose: speech models do better on clean single-source audio,
 and mic-vs-system is free two-party diarization — `me` vs `them` with no
-speaker-identification model. CAF on purpose: unlike m4a, it needs no
-finalization pass — if the process dies mid-meeting, everything already
-written is still readable.
+speaker-identification model. Fixed-size PCM packets in CAF need no packet
+table on clean close, so audio already written remains readable after a crash.
+At 44.1 kHz mono mic and 48 kHz stereo system audio, allow roughly 1 GB per
+hour for both tracks combined; usage varies with device sample rates.
 
 ## Capture recovery
 
@@ -87,6 +89,12 @@ its `segments` (with session-clock start/end offsets and frame counts) and
 attempts it took). `status` tells you whether the track is `complete`,
 `recovered` (usable, with a bounded gap), or `incomplete` (audio missing at
 the tail or an unrecovered stall).
+
+If Quill or the Mac stops before you click **Stop recording**, Quill reads
+`in-progress.json` on its next launch and rebuilds `meta.json` from every
+readable segment. It marks the session `incomplete`, records the interruption,
+notifies you, and queues the surviving audio for transcription. A missing or
+unreadable segment is listed as a warning in `meta.json`.
 
 ## Transcription
 
@@ -149,7 +157,7 @@ quill install --uninstall
 - **Core Audio process tap** (`AudioHardwareCreateProcessTap`, macOS 14.2+) —
   system audio capture via a private aggregate device
 - **AVAudioEngine** — mic capture
-- **AVAudioFile** — streaming AAC encode into CAF
+- **AVAudioFile** — streaming 16-bit PCM into CAF, readable after an unclean exit
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **NSStatusItem** — the whole UI
 

@@ -2,7 +2,7 @@ import AVFoundation
 import CoreAudio
 import Foundation
 
-/// Records the default input device to a file via AVAudioEngine, encoding AAC
+/// Records the default input device to a file via AVAudioEngine as 16-bit PCM
 /// mono. Buffers stream straight to disk — nothing is held in memory, so
 /// session length is unbounded.
 ///
@@ -79,7 +79,7 @@ final class MicRecorder: TrackRecorder, @unchecked Sendable {
 
     // MARK: -
 
-    /// Build the engine graph, create the AAC file, start capture, and attach
+    /// Build the engine graph, create the PCM file, start capture, and attach
     /// route observers. Runs on the control queue.
     private func attach(
         url: URL,
@@ -126,9 +126,14 @@ final class MicRecorder: TrackRecorder, @unchecked Sendable {
         }
 
         let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            // CAF with fixed-size PCM packets remains readable after SIGKILL.
+            // AAC needs a packet table finalized on clean close.
+            AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: monoFormat.sampleRate,
             AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsNonInterleaved: false,
         ]
         let file: AVAudioFile
         do {

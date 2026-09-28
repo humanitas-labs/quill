@@ -70,4 +70,31 @@ final class TranscriptionCoordinatorTests: XCTestCase {
         )
         XCTAssertFalse(transcript.rendered(title: "t").contains("capture:"))
     }
+
+    func testMarkdownWriteFailureLeavesSessionPending() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-transcript-\(UUID().uuidString)", isDirectory: true)
+        let dir = root.appendingPathComponent("session", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("meta.json"))
+        let markdown = dir.appendingPathComponent("transcript.md")
+        try FileManager.default.createDirectory(at: markdown, withIntermediateDirectories: true)
+
+        let transcript = Transcript(
+            engine: "test", model: "test", created_at: "2026-09-28T00:00:00Z",
+            segments: []
+        )
+        XCTAssertThrowsError(try transcript.write(to: dir))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        XCTAssertEqual(
+            TranscriptionCoordinator.pendingSessions(in: root).map { $0.resolvingSymlinksInPath() },
+            [dir.resolvingSymlinksInPath()]
+        )
+
+        try FileManager.default.removeItem(at: markdown)
+        try transcript.write(to: dir)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        XCTAssertTrue(TranscriptionCoordinator.pendingSessions(in: root).isEmpty)
+    }
 }

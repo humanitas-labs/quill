@@ -99,6 +99,15 @@ final class AppController {
                     self?.showTranscription(status)
                 }
             }
+            for recovered in SessionRecovery.recoverInterrupted(in: root) {
+                let time = DateFormatter.localizedString(
+                    from: recovered.startedAt, dateStyle: .short, timeStyle: .short
+                )
+                notifyUser(
+                    title: "quill — recording recovered",
+                    body: "Recovered an interrupted recording from \(time)."
+                )
+            }
             await transcription.resumePending(root: root)
         }
     }
