@@ -34,17 +34,32 @@ struct SessionClock: Sendable {
     }
 }
 
-/// Which capture path a track records. The two tracks are deliberately
+/// Which capture path a track records. The two live tracks are deliberately
 /// independent: one can recover or degrade while the other stays healthy.
+/// `memo` is an imported recording (e.g. an AirDropped Voice Memo): one
+/// room microphone, so it has no me/them split.
 enum TrackKind: String, Codable, CaseIterable, Sendable {
     case mic
     case system
+    case memo
 
     /// Speaker label used in transcripts.
-    var speaker: String { self == .mic ? "me" : "them" }
+    var speaker: String {
+        switch self {
+        case .mic: return "me"
+        case .system: return "them"
+        case .memo: return "memo"
+        }
+    }
 
     /// Human-readable name for menu and notification text.
-    var label: String { self == .mic ? "microphone" : "system audio" }
+    var label: String {
+        switch self {
+        case .mic: return "microphone"
+        case .system: return "system audio"
+        case .memo: return "voice memo"
+        }
+    }
 
     /// Base file name of the track's first segment ("mic.caf"); later
     /// segments append a counter ("mic-002.caf").

@@ -1,6 +1,7 @@
 import AppKit
 import ArgumentParser
 import Foundation
+import UniformTypeIdentifiers
 
 @main
 struct Quill: ParsableCommand {
@@ -89,6 +90,8 @@ final class AppController {
     init(root: URL) {
         self.root = root
         menuBar.onToggle = { [weak self] in self?.toggle() }
+        menuBar.onImport = { [weak self] in self?.chooseAudioFiles() }
+        menuBar.onDropFiles = { [weak self] urls in self?.importAudio(urls) }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(.idle)
@@ -201,6 +204,42 @@ final class AppController {
             display = .degraded(track: kind.label, elapsed: elapsed)
         }
         menuBar.update(display, signalWarning: captureStatus.signalWarning)
+    }
+
+    /// Pick audio files to transcribe, starting in Downloads — where AirDrop
+    /// puts a Voice Memo shared from an iPhone.
+    private func chooseAudioFiles() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose recordings to transcribe"
+        panel.prompt = "Transcribe"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = AudioImport.supportedExtensions.compactMap {
+            UTType(filenameExtension: $0)
+        }
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        // An accessory app's panel opens behind the frontmost app otherwise.
+        NSApp.activate()
+        guard panel.runModal() == .OK else { return }
+        importAudio(panel.urls)
+    }
+
+    /// Stage each file as its own session and queue it for transcription.
+    /// Staging (copy or conversion) runs off the main actor; one bad file
+    /// doesn't stop the rest.
+    private func importAudio(_ urls: [URL]) {
+        Task { [root, transcription] in
+            for url in urls {
+                do {
+                    let dir = try await AudioImport.stage(url, root: root)
+                    FileHandle.standardError.write(Data("⇣ imported \(url.lastPathComponent) → \(dir.path)\n".utf8))
+                    await transcription.enqueue(dir)
+                } catch {
+                    FileHandle.standardError.write(Data("import failed: \(error)\n".utf8))
+                    notifyUser(title: "quill — import failed", body: "\(error)")
+                }
+            }
+        }
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {

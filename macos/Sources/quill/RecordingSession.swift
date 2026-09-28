@@ -67,13 +67,6 @@ final class RecordingSession {
     private var live = false
     private var lastPublished = CaptureStatus.allHealthy
 
-    private static let folderFormat: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy.MM.dd-HHmm"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-
     /// Create the session folder under `root` (yyyy.MM.dd-HHmm, suffixed on
     /// collision) without starting capture yet. Recorders, policy, and the
     /// time source are injectable so orchestration tests can run with fakes,
@@ -84,15 +77,7 @@ final class RecordingSession {
         policy: CapturePolicy = .production,
         nowMs: (() -> Int)? = nil
     ) throws {
-        let base = Self.folderFormat.string(from: startedAt)
-        var candidate = root.appendingPathComponent(base, isDirectory: true)
-        var n = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = root.appendingPathComponent("\(base)-\(n)", isDirectory: true)
-            n += 1
-        }
-        try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
-        dir = candidate
+        dir = try SessionFolder.create(in: root, date: startedAt)
 
         self.policy = policy
         // System first: its TCC prompt and tap construction are the likelier

@@ -46,6 +46,7 @@ Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
 | `mic.caf` | your side (default input device, AAC) |
 | `system.caf` | everything the Mac played — the other side of the call (AAC) |
 | `mic-002.caf`, `system-002.caf`, … | additional segments, present only if capture had to restart mid-session (see below) |
+| `memo.m4a` (or `.qta`, `.wav`, …) | an imported recording, in place of the two tracks (see below) |
 | `meta.json` | start/end timestamps, duration, per-track segments/offsets, and capture status (`complete`/`recovered`/`incomplete`) |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |
@@ -56,6 +57,39 @@ and mic-vs-system is free two-party diarization — `me` vs `them` with no
 speaker-identification model. CAF on purpose: unlike m4a, it needs no
 finalization pass — if the process dies mid-meeting, everything already
 written is still readable.
+
+## Transcribing a Voice Memo (or any audio file)
+
+Record on your iPhone with Voice Memos, share it to your Mac with AirDrop
+(it lands in `~/Downloads`), then either:
+
+- **drag the file onto the feather** in the menu bar — it highlights when the
+  file is accepted; or
+- **click the feather → Transcribe audio file…** (the panel opens in
+  Downloads; pick one or several).
+
+Each file becomes its own session folder, named for when the memo was
+recorded (from the file's metadata, not the AirDrop time), so it sorts in
+with your meetings. The original is copied, never moved. Voice Memos' newer
+`.qta` files, and anything else AVFoundation can't read directly, are
+converted to `memo.m4a` first. From there it's the normal pipeline: queued
+behind any other transcription, same `transcript.json`/`transcript.md`, same
+notification and `on_stop` hook.
+
+A memo is one microphone in a room, so there's no me/them split — every line
+is tagged `memo`, and the header records the original file name:
+
+```markdown
+# 2026.09.27-1412
+
+engine: parakeet (parakeet-tdt-0.6b-v2-coreml)
+source: New Recording 3.m4a
+
+**[0:12] memo:** Okay, so the plan for next week is…
+```
+
+Accepted: `m4a`, `qta`, `caf`, `wav`, `aif`/`aiff`/`aifc`, `mp3`, `aac`,
+`mp4`, `mov`, `m4v`.
 
 ## Capture recovery
 

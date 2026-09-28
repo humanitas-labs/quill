@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added audio file import on macOS: drag a Voice Memo (or any audio file)
+  onto the menu-bar feather, or choose **Transcribe audio file…**, and it is
+  staged as its own session — one `memo` track, folder named for the
+  recording date, `.qta`/video converted to `.m4a` — then transcribed into
+  the usual `transcript.json`/`transcript.md`, with the original file name in
+  the transcript header.
+
 ## 0.1.3 - 2026-08-04
 
 - Fixed macOS route changes silently truncating capture: both tracks now have

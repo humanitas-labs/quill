@@ -20,6 +20,8 @@ Requires macOS 15+. Apple Silicon is recommended for transcription speed.
 2. Choose **Stop recording** when the meeting ends. Transcription starts automatically.
 3. The transcript lands in `~/Recordings/<yyyy.MM.dd-HHmm>/transcript.md`, next to the audio.
 
+Already have a recording? AirDrop a Voice Memo from your iPhone to your Mac, then drag it from Downloads onto the feather (or choose **Transcribe audio file…**). It gets its own session folder and the same transcript.
+
 See the [macOS documentation](macos/README.md) for configuration, the CLI, and troubleshooting.
 
 ## 3. Platforms

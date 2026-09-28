@@ -1,9 +1,9 @@
 import Foundation
 
 /// Post-recording pipeline: a serial queue of session folders to transcribe.
-/// mic.caf → "me", system.caf → "them"; each track's segments are shifted by
-/// its start offset, merged by timestamp, and written as transcript.json
-/// (canonical) plus transcript.md (readable). The filesystem is the queue —
+/// mic.caf → "me", system.caf → "them", an imported memo.* → "memo"; each
+/// track's segments are shifted by its start offset, merged by timestamp,
+/// and written as transcript.json (canonical) plus transcript.md (readable). The filesystem is the queue —
 /// `resumePending()` rescans at launch, so a crash or quit mid-transcription
 /// just retries on next run. Failures append to the session's transcribe.log
 /// and never block later jobs.
@@ -107,6 +107,7 @@ actor TranscriptionCoordinator {
         // segment transcribes independently and shifts onto the session
         // clock, so timing gaps around a capture recovery stay visible.
         let (inputs, captureStatus) = try SessionMeta.readInputs(from: dir)
+        let source = SessionMeta.readSource(from: dir)
         let engine = try await preparedEngine()
 
         var merged: [Transcript.Segment] = []
@@ -136,7 +137,7 @@ actor TranscriptionCoordinator {
             created_at: ISO8601DateFormatter().string(from: Date()),
             segments: merged
         )
-        try transcript.write(to: dir, captureStatus: captureStatus)
+        try transcript.write(to: dir, captureStatus: captureStatus, source: source)
         log(dir, "done — \(merged.count) segments")
     }
 
@@ -224,18 +225,22 @@ struct Transcript: Codable {
     /// disk — resumePending treats presence of transcript.json as "done".
     /// `captureStatus` (v2 sessions only) is persisted in the readable header
     /// so an incomplete recording stays visibly incomplete after the
-    /// transient notification disappears.
-    func write(to dir: URL, captureStatus: TrackStatus? = nil) throws {
+    /// transient notification disappears. `source` (imported audio only)
+    /// keeps the original file name visible next to the dated folder title.
+    func write(to dir: URL, captureStatus: TrackStatus? = nil, source: String? = nil) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self)
             .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
-        try Data(rendered(title: dir.lastPathComponent, captureStatus: captureStatus).utf8)
+        try Data(rendered(title: dir.lastPathComponent, captureStatus: captureStatus, source: source).utf8)
             .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
     }
 
-    func rendered(title: String, captureStatus: TrackStatus? = nil) -> String {
+    func rendered(title: String, captureStatus: TrackStatus? = nil, source: String? = nil) -> String {
         var lines = ["# \(title)", "", "engine: \(engine) (\(model))"]
+        if let source {
+            lines.append("source: \(source)")
+        }
         if let captureStatus, captureStatus != .complete {
             lines.append("capture: \(captureStatus.rawValue)")
         }
