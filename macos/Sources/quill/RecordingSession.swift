@@ -53,6 +53,9 @@ final class RecordingSession {
         var segmentIndex = 1
         var pendingRestart: (dueMs: Int, attempt: Int)?
         var lastBufferEndMs: Int?
+        var activeFile: String?
+        var activeStartMs = 0
+        var activeCaptureStarted = false
 
         init(recorder: any TrackRecorder) {
             self.recorder = recorder
@@ -66,6 +69,8 @@ final class RecordingSession {
     private var watchdog: Timer?
     private var live = false
     private var lastPublished = CaptureStatus.allHealthy
+    private var recordingLock: RecordingLock?
+    private var lastPersisted: InProgressRecording?
 
     private static let folderFormat: DateFormatter = {
         let f = DateFormatter()
@@ -107,17 +112,20 @@ final class RecordingSession {
     /// Once live, one track's failure no longer stops the other — it enters
     /// recovery independently. The watchdog starts after all recorders are up.
     func start() throws {
+        recordingLock = try RecordingLock.acquire(in: dir)
         var started: [TrackState] = []
-        for track in tracks {
-            do {
+        do {
+            try persistInProgress()
+            for track in tracks {
                 try startSegment(track)
                 started.append(track)
-            } catch {
-                for rollback in started {
-                    _ = rollback.recorder.stop()
-                }
-                throw error
             }
+        } catch {
+            for rollback in started { _ = rollback.recorder.stop() }
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(InProgressRecording.fileName))
+            recordingLock?.release()
+            recordingLock = nil
+            throw error
         }
         live = true
         startWatchdog()
@@ -169,11 +177,15 @@ final class RecordingSession {
             status: worst,
             tracks: trackMetas
         )
+        persistOrLog()
         do {
             try meta.write(to: dir)
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(InProgressRecording.fileName))
         } catch {
             FileHandle.standardError.write(Data("meta.json write failed: \(error)\n".utf8))
         }
+        recordingLock?.release()
+        recordingLock = nil
         return StopResult(dir: dir, status: worst)
     }
 
@@ -193,6 +205,7 @@ final class RecordingSession {
             }
         }
         publishStatus()
+        persistOrLog()
     }
 
     // MARK: -
@@ -200,8 +213,8 @@ final class RecordingSession {
     private func startWatchdog() {
         // Explicitly .common: the default run-loop mode stops firing while
         // the user holds the menu open, which would blind the watchdog.
-        let timer = Timer(timeInterval: 1, repeats: true) { _ in
-            MainActor.assumeIsolated { [weak self] in self?.tick() }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         watchdog = timer
@@ -213,10 +226,22 @@ final class RecordingSession {
         let kind = track.recorder.kind
         let name = kind.segmentFile(index: track.segmentIndex)
         let url = dir.appendingPathComponent(name)
-        try track.recorder.start(url: url, clock: clock) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.handle(event, on: kind)
+        track.activeFile = name
+        track.activeStartMs = nowMs()
+        track.activeCaptureStarted = false
+        do {
+            try persistInProgress()
+            try track.recorder.start(url: url, clock: clock) { [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.handle(event, on: kind)
+                }
             }
+            track.activeCaptureStarted = true
+        } catch {
+            track.activeFile = nil
+            track.activeCaptureStarted = false
+            persistOrLog()
+            throw error
         }
         if track.machine == nil {
             track.machine = TrackHealthMachine(kind: kind, policy: policy, startMs: nowMs())
@@ -238,6 +263,7 @@ final class RecordingSession {
             rotateAfterVoiceFallback(track)
         }
         publishStatus()
+        persistOrLog()
     }
 
     /// The voice-processing graph proved silent: keep the zero-only startup
@@ -301,6 +327,8 @@ final class RecordingSession {
     /// that never wrote a buffer stays on disk but earns no metadata entry —
     /// there is nothing to transcribe or align.
     private func record(_ stats: SegmentStats?, into track: TrackState) {
+        track.activeFile = nil
+        track.activeCaptureStarted = false
         guard let stats else { return }
         if let end = stats.lastBufferEndMs {
             track.lastBufferEndMs = max(track.lastBufferEndMs ?? 0, end)
@@ -336,6 +364,49 @@ final class RecordingSession {
             didRecover: tracks.contains { $0.machine?.didRecover == true },
             signalWarning: tracks.contains { $0.machine?.signalWarningActive == true }
         )
+    }
+
+    /// Snapshot only on changes: opening/rotating a segment, its first audio
+    /// buffer, and health transitions. Continuous capture does no disk work.
+    private func persistInProgress() throws {
+        guard recordingLock != nil else { return }
+        let snapshot = InProgressRecording(
+            started: startedAt,
+            tracks: tracks.map { track in
+                var segments = track.segments.map {
+                    InProgressRecording.Segment(
+                        file: $0.file,
+                        start_offset_ms: $0.start_offset_ms,
+                        end_offset_ms: $0.end_offset_ms
+                    )
+                }
+                if let activeFile = track.activeFile {
+                    segments.append(
+                        InProgressRecording.Segment(
+                            file: activeFile,
+                            start_offset_ms: track.activeCaptureStarted
+                                ? (track.recorder.telemetry().firstWriteMs ?? track.activeStartMs)
+                                : track.activeStartMs,
+                            end_offset_ms: nil
+                        ))
+                }
+                return InProgressRecording.Track(
+                    kind: track.recorder.kind,
+                    segments: segments,
+                    interruptions: track.machine?.interruptions ?? [],
+                    warnings: (track.machine?.warnings ?? []) + track.warnings
+                )
+            }
+        )
+        guard snapshot != lastPersisted else { return }
+        try snapshot.write(to: dir)
+        lastPersisted = snapshot
+    }
+
+    private func persistOrLog() {
+        do { try persistInProgress() } catch {
+            FileHandle.standardError.write(Data("in-progress.json write failed: \(error)\n".utf8))
+        }
     }
 
     private func publishStatus() {

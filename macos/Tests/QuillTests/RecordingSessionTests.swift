@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 
 @testable import quill
@@ -109,6 +110,10 @@ final class RecordingSessionTests: XCTestCase {
     func testUninterruptedSessionWritesCompleteV2Metadata() throws {
         let session = try makeSession()
         try session.start()
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: session.dir.appendingPathComponent(InProgressRecording.fileName).path
+            ))
         tick(session, at: 1000)
         tick(session, at: 60000)
 
@@ -117,6 +122,10 @@ final class RecordingSessionTests: XCTestCase {
         XCTAssertEqual(result.status, .complete)
 
         let meta = try readMeta(session)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: session.dir.appendingPathComponent(InProgressRecording.fileName).path
+            ))
         XCTAssertEqual(meta.schema_version, 2)
         XCTAssertEqual(meta.status, .complete)
         XCTAssertEqual(meta.tracks.map(\.kind), [.mic, .system])
@@ -134,6 +143,10 @@ final class RecordingSessionTests: XCTestCase {
         tick(session, at: 6000, micStalled: true)
         XCTAssertEqual(mic.startedFiles, ["mic.caf", "mic-002.caf"])
         XCTAssertEqual(system.startedFiles, ["system.caf"])
+        let inProgress = try InProgressRecording.read(from: session.dir)
+        let micRecord = try XCTUnwrap(inProgress.tracks.first { $0.kind == .mic })
+        XCTAssertEqual(micRecord.segments.map(\.file), ["mic.caf", "mic-002.caf"])
+        XCTAssertEqual(micRecord.segments.first?.end_offset_ms, 1000)
 
         // Replacement segment stabilizes; later stop is a recovered session.
         for ms in stride(from: 7000, through: 13000, by: 1000) {
@@ -224,5 +237,46 @@ final class RecordingSessionTests: XCTestCase {
         // System started first and must be torn down again.
         XCTAssertEqual(system.startedFiles, ["system.caf"])
         XCTAssertNil(system.stop())  // already stopped by rollback
+    }
+
+    func testOrphanedRotatedSessionFeedsV2Recovery() throws {
+        var session: RecordingSession? = try makeSession()
+        try session!.start()
+        tick(session!, at: 1000)
+        mic.writes(first: 500, last: 1000)
+        tick(session!, at: 6000, micStalled: true)
+        let dir = session!.dir
+        try writeAudio("mic.caf", in: dir)
+        try writeAudio("mic-002.caf", in: dir)
+        try writeAudio("system.caf", in: dir)
+
+        // Releasing the owner models a dead process: its kernel lock drops,
+        // while the in-progress record and CAF files remain on disk.
+        session = nil
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent(InProgressRecording.fileName).path
+            ))
+        XCTAssertEqual(SessionRecovery.recoverInterrupted(in: root).count, 1)
+        let meta = try JSONDecoder().decode(
+            SessionMeta.self, from: Data(contentsOf: dir.appendingPathComponent("meta.json"))
+        )
+        XCTAssertEqual(meta.status, .incomplete)
+        let micTrack = try XCTUnwrap(meta.tracks.first { $0.kind == .mic })
+        XCTAssertEqual(micTrack.segments.map(\.file), ["mic.caf", "mic-002.caf"])
+        XCTAssertEqual(micTrack.interruptions.map(\.reason), ["callback_stalled", "process_exited"])
+    }
+
+    private func writeAudio(_ name: String, in dir: URL) throws {
+        let format = try XCTUnwrap(
+            AVAudioFormat(
+                commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+                channels: 1, interleaved: false
+            ))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160))
+        buffer.frameLength = 160
+        for index in 0..<160 { buffer.floatChannelData![0][index] = 0.1 }
+        let audio = try AVAudioFile(forWriting: dir.appendingPathComponent(name), settings: format.settings)
+        try audio.write(from: buffer)
     }
 }
