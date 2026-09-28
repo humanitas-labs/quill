@@ -21,10 +21,18 @@ final class MenuBarController {
     private let warningLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let toggleItem: NSMenuItem
+    private let dropTarget = StatusItemDropTarget()
 
     var onToggle: (() -> Void)?
+    var onImport: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
+    /// Audio files dropped onto the feather (already filtered to supported
+    /// types).
+    var onDropFiles: (([URL]) -> Void)? {
+        get { dropTarget.onDrop }
+        set { dropTarget.onDrop = newValue }
+    }
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -55,6 +63,13 @@ final class MenuBarController {
         )
         menu.addItem(toggleItem)
 
+        let importItem = NSMenuItem(
+            title: "Transcribe audio file…",
+            action: #selector(importClicked),
+            keyEquivalent: "i"
+        )
+        menu.addItem(importItem)
+
         let openFolder = NSMenuItem(
             title: "Open recordings folder",
             action: #selector(openFolderClicked),
@@ -71,7 +86,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, quit] {
+        for item in [toggleItem, importItem, openFolder, quit] {
             item.target = self
         }
 
@@ -82,6 +97,12 @@ final class MenuBarController {
             image?.isTemplate = true
             button.image = image
             button.imagePosition = .imageLeft
+            dropTarget.button = button
+            // The status item's window forwards dragging-destination
+            // messages to its delegate, so dropping a file on the feather
+            // works without replacing the button's own click handling.
+            button.window?.registerForDraggedTypes([.fileURL])
+            button.window?.delegate = dropTarget
         }
     }
 
@@ -147,6 +168,48 @@ final class MenuBarController {
     }
 
     @objc private func toggleClicked() { onToggle?() }
+    @objc private func importClicked() { onImport?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
+}
+
+/// Accepts audio files dragged onto the menu-bar feather (e.g. a Voice Memo
+/// just AirDropped into Downloads). The feather highlights while a drag
+/// carrying at least one importable file hovers over it; anything else is
+/// refused so the drag snaps back.
+@MainActor
+private final class StatusItemDropTarget: NSObject, NSWindowDelegate, NSDraggingDestination {
+    weak var button: NSStatusBarButton?
+    var onDrop: (([URL]) -> Void)?
+
+    func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let accept = !audioURLs(in: sender).isEmpty
+        button?.highlight(accept)
+        return accept ? .copy : []
+    }
+
+    func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        audioURLs(in: sender).isEmpty ? [] : .copy
+    }
+
+    func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        button?.highlight(false)
+    }
+
+    func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        button?.highlight(false)
+        let urls = audioURLs(in: sender)
+        guard !urls.isEmpty else { return false }
+        onDrop?(urls)
+        return true
+    }
+
+    private func audioURLs(in info: any NSDraggingInfo) -> [URL] {
+        let urls =
+            info.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
+        return urls.filter(AudioImport.isSupported)
+    }
 }

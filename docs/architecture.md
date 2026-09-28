@@ -56,8 +56,11 @@ schema v2 is the shared contract for that:
 
 - `schema_version: 2`, session `started`/`ended` (ISO 8601, human-readable
   only), `duration_seconds`, and a session `status`;
-- `tracks[]`, each with `kind` (`mic`/`system`), `speaker` (`me`/`them`), a
-  final `status`, `segments[]`, `interruptions[]`, and `warnings[]`;
+- `tracks[]`, each with `kind` (`mic`/`system`, or `memo` for an imported
+  file), `speaker` (`me`/`them`/`memo`), a final `status`, `segments[]`,
+  `interruptions[]`, and `warnings[]`;
+- optional `source`: the original file name of imported audio, absent for
+  live recordings;
 - each segment records `file`, `start_offset_ms`, `end_offset_ms`,
   `frames_written`, `sample_rate_hz`, and `channels`;
 - each interruption records `detected_offset_ms`, `recovered_offset_ms`
@@ -83,6 +86,11 @@ Rules the schema encodes:
 - **Merging.** Each segment transcribes independently and is shifted by its
   `start_offset_ms`; capture gaps stay visible as timestamp gaps in the merged
   transcript.
+
+**Imported audio.** An existing recording (e.g. an AirDropped Voice Memo) is
+staged as a v2 session with one complete `memo` track whose single segment
+starts at offset 0. The source is copied, never moved; meta.json is written
+last so a partial import is never picked up by the transcription queue.
 
 Formal JSON schemas and compatibility fixtures will be extracted before the
 Windows capture probe becomes a full application. Until then, the macOS output

@@ -30,6 +30,9 @@ struct SessionMeta: Codable, Equatable, Sendable {
     var duration_seconds: Int
     var status: TrackStatus
     var tracks: [Track]
+    /// Original file name of imported audio ("New Recording 3.m4a"); absent
+    /// for live recordings.
+    var source: String? = nil
 
     /// One transcription input: a segment file, who speaks on it, and where
     /// it starts on the session clock. Both schema versions normalize to an
@@ -75,6 +78,16 @@ struct SessionMeta: Codable, Equatable, Sendable {
             return (inputs, meta.status)
         }
         return (try v1Inputs(data: data, url: url), nil)
+    }
+
+    /// The imported file name recorded in meta.json, if any. Best-effort: a
+    /// missing or v1 meta.json simply has no source.
+    static func readSource(from dir: URL) -> String? {
+        guard
+            let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json["source"] as? String
     }
 
     // MARK: -

@@ -70,4 +70,17 @@ final class TranscriptionCoordinatorTests: XCTestCase {
         )
         XCTAssertFalse(transcript.rendered(title: "t").contains("capture:"))
     }
+
+    func testRenderedHeaderCarriesImportSource() {
+        let transcript = Transcript(
+            engine: "parakeet", model: "test", created_at: "2026-09-28T10:00:00Z",
+            segments: [
+                Transcript.Segment(speaker: "memo", start_ms: 12_000, end_ms: 14_000, text: "hi")
+            ]
+        )
+        let rendered = transcript.rendered(title: "2026.09.27-1412", source: "New Recording 3.m4a")
+        XCTAssertTrue(rendered.contains("source: New Recording 3.m4a"))
+        XCTAssertTrue(rendered.contains("**[0:12] memo:** hi"))
+        XCTAssertFalse(transcript.rendered(title: "t").contains("source:"))
+    }
 }
