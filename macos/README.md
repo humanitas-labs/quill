@@ -104,6 +104,19 @@ on next launch (the filesystem is the queue: a session with `meta.json` but no
 `transcript.json` is pending). Failures append to the session's
 `transcribe.log` and never block later jobs.
 
+Choose **Retry unfinished transcriptions** from the feather menu to perform
+the same scan without quitting, including while a new recording or another
+transcription is running. Only sessions with `meta.json` and no
+`transcript.json` are eligible; active/queued jobs are not added twice, and
+completed transcripts and original audio are left unchanged. Retrying starts
+the session from the beginning, not from a partial timestamp. If transcription
+is disabled in config, the action reports that instead of starting work.
+
+This does not force re-transcription of a completed or partial transcript that
+already has `transcript.json`, repair missing/unreadable audio, or recover a
+recording without `meta.json`. Inspect the session's `transcribe.log` when a
+retry fails again.
+
 The engine sits behind a small protocol; a Whisper engine (WhisperKit
 large-v3-turbo) is planned as the fallback / re-transcription option.
 

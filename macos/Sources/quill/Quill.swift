@@ -90,6 +90,7 @@ final class AppController {
         self.root = root
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
+        menuBar.onRetryTranscriptions = { [weak self] in self?.retryTranscriptions() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(.idle)
 
@@ -223,6 +224,29 @@ final class AppController {
     private func openFolder() {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         NSWorkspace.shared.open(root)
+    }
+
+    private func retryTranscriptions() {
+        Task { [transcription, root, weak self] in
+            let result = await transcription.retryPending(root: root)
+            guard let self else { return }
+            self.menuBar.finishRetryRequest()
+            switch result {
+            case .disabled:
+                notifyUser(
+                    title: "quill — transcription disabled",
+                    body: "Enable transcription in config.json before retrying."
+                )
+            case .queued(0):
+                notifyUser(
+                    title: "quill — nothing to retry",
+                    body: "No new unfinished sessions found. Active/queued jobs and completed transcripts were left unchanged."
+                )
+            case .queued:
+                // The existing progress line reports the serial queue.
+                break
+            }
+        }
     }
 
     private static func format(_ interval: TimeInterval) -> String {

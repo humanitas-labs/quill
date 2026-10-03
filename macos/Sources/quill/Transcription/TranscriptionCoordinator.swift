@@ -4,9 +4,8 @@ import Foundation
 /// mic.caf → "me", system.caf → "them"; each track's segments are shifted by
 /// its start offset, merged by timestamp, and written as transcript.json
 /// (canonical) plus transcript.md (readable). The filesystem is the queue —
-/// `resumePending()` rescans at launch, so a crash or quit mid-transcription
-/// just retries on next run. Failures append to the session's transcribe.log
-/// and never block later jobs.
+/// `resumePending()` rescans at launch and `retryPending()` rescans on demand.
+/// Failures append to the session's transcribe.log and never block later jobs.
 actor TranscriptionCoordinator {
     enum Status: Sendable {
         case idle
@@ -14,11 +13,37 @@ actor TranscriptionCoordinator {
         case failed(session: String)
     }
 
+    enum RetryResult: Equatable, Sendable {
+        case disabled
+        /// Number of sessions newly queued, excluding active/queued jobs.
+        case queued(Int)
+    }
+
     private var queue: [URL] = []
     private var draining = false
+    private var currentDirectory: URL?
     private var engine: TranscriptionEngine?
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
+    private let engineFactory: @Sendable () -> TranscriptionEngine
+    private let transcriptionEnabled: @Sendable () -> Bool
+    private let onStop: @Sendable () -> String?
+    private let notify: @Sendable (String, String) -> Void
+
+    /// Defaults preserve runtime configuration/notifications. Tests supply
+    /// a fake engine and no hooks/notifications, without touching user config
+    /// or downloading models.
+    init(
+        engineFactory: @escaping @Sendable () -> TranscriptionEngine = { defaultEngine() },
+        transcriptionEnabled: @escaping @Sendable () -> Bool = { Config.transcriptionEnabled() },
+        onStop: @escaping @Sendable () -> String? = { Config.onStop() },
+        notify: @escaping @Sendable (String, String) -> Void = { notifyUser(title: $0, body: $1) }
+    ) {
+        self.engineFactory = engineFactory
+        self.transcriptionEnabled = transcriptionEnabled
+        self.onStop = onStop
+        self.notify = notify
+    }
 
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
         statusHandler = handler
@@ -27,11 +52,13 @@ actor TranscriptionCoordinator {
     /// Queue a finished session. With transcription disabled in config, the
     /// on_stop hook still fires — it just gets an untranscribed folder.
     func enqueue(_ sessionDir: URL) {
-        guard Config.transcriptionEnabled() else {
+        guard transcriptionEnabled() else {
             runHook(for: sessionDir)
             return
         }
-        queue.append(sessionDir)
+        let dir = sessionDir.standardizedFileURL
+        guard dir != currentDirectory, !queue.contains(dir), !Self.isCompleted(dir) else { return }
+        queue.append(dir)
         drainIfIdle()
     }
 
@@ -39,31 +66,58 @@ actor TranscriptionCoordinator {
     /// but were never transcribed. Folder names sort chronologically, so
     /// oldest-first is a name sort.
     func resumePending(root: URL) {
-        guard Config.transcriptionEnabled() else { return }
-        guard
-            let entries = try? FileManager.default.contentsOfDirectory(
-                at: root, includingPropertiesForKeys: nil
-            )
-        else { return }
+        _ = queuePending(root: root, action: "resuming")
+    }
 
-        let fm = FileManager.default
-        let pending =
-            entries
-            .filter {
-                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
-                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
-            }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        for dir in pending where !queue.contains(dir) {
+    /// Retry unfinished sessions without restarting quill. A completed JSON
+    /// transcript is never overwritten; jobs already running or waiting are
+    /// excluded even while this actor is suspended on model work.
+    func retryPending(root: URL) -> RetryResult {
+        queuePending(root: root, action: "retrying")
+    }
+
+    private func queuePending(root: URL, action: String) -> RetryResult {
+        guard transcriptionEnabled() else { return .disabled }
+        var added = 0
+        for dir in Self.pendingSessions(in: root)
+        where dir != currentDirectory && !queue.contains(dir) {
             queue.append(dir)
+            added += 1
         }
-        if !pending.isEmpty {
+        if added > 0 {
             FileHandle.standardError.write(
-                Data(
-                    "resuming \(pending.count) untranscribed session(s)\n".utf8
-                ))
+                Data("\(action) \(added) untranscribed session(s)\n".utf8)
+            )
+            if let currentDirectory {
+                publish(.transcribing(session: currentDirectory.lastPathComponent, queued: queue.count))
+            }
         }
         drainIfIdle()
+        return .queued(added)
+    }
+
+    /// Launch and manual retry share the same filesystem completion rule.
+    nonisolated static func pendingSessions(in root: URL) -> [URL] {
+        guard
+            let entries = try? FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isDirectoryKey]
+            )
+        else { return [] }
+
+        let fm = FileManager.default
+        return
+            entries
+            .map(\.standardizedFileURL)
+            .filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                    && fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
+                    && !isCompleted($0)
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private nonisolated static func isCompleted(_ dir: URL) -> Bool {
+        FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path)
     }
 
     // MARK: -
@@ -78,19 +132,25 @@ actor TranscriptionCoordinator {
     private func drain() async {
         while !queue.isEmpty {
             let dir = queue.removeFirst()
+            // A session may have completed elsewhere since the scan. Do not
+            // overwrite that transcript or fire its hook a second time.
+            guard !Self.isCompleted(dir) else { continue }
+            currentDirectory = dir
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
                 try await transcribe(dir)
-                notifyUser(title: "quill — transcript ready", body: dir.lastPathComponent)
+                if lastFailure == dir.lastPathComponent { lastFailure = nil }
+                notify("quill — transcript ready", dir.lastPathComponent)
                 runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
-                notifyUser(
-                    title: "quill — transcription failed",
-                    body: "\(dir.lastPathComponent) — see transcribe.log"
+                notify(
+                    "quill — transcription failed",
+                    "\(dir.lastPathComponent) — see transcribe.log"
                 )
             }
+            currentDirectory = nil
         }
         await engine?.release()
         engine = nil
@@ -142,6 +202,13 @@ actor TranscriptionCoordinator {
 
     private func preparedEngine() async throws -> TranscriptionEngine {
         if let engine { return engine }
+        let engine = engineFactory()
+        try await engine.prepare()
+        self.engine = engine
+        return engine
+    }
+
+    private nonisolated static func defaultEngine() -> TranscriptionEngine {
         let configured = Config.transcriptionEngine()
         if configured != "parakeet" {
             FileHandle.standardError.write(
@@ -149,17 +216,14 @@ actor TranscriptionCoordinator {
                     "warning: unknown transcription engine \"\(configured)\" — using parakeet\n".utf8
                 ))
         }
-        let engine = ParakeetEngine()
-        try await engine.prepare()
-        self.engine = engine
-        return engine
+        return ParakeetEngine()
     }
 
     /// Fires the configured on_stop shell command with the session directory
     /// as its sole argument, after the transcript exists (or immediately after
     /// recording when transcription is disabled).
     private func runHook(for dir: URL) {
-        guard let cmd = Config.onStop() else { return }
+        guard let cmd = onStop() else { return }
         let task = Process()
         task.launchPath = "/bin/sh"
         task.arguments = ["-c", "\(cmd) \"$0\"", dir.path]

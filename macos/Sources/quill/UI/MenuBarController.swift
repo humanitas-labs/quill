@@ -20,10 +20,12 @@ final class MenuBarController {
     private let stateLabel: NSMenuItem
     private let warningLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
+    private let retryTranscriptionItem: NSMenuItem
     private let toggleItem: NSMenuItem
 
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
+    var onRetryTranscriptions: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
@@ -48,6 +50,13 @@ final class MenuBarController {
 
         menu.addItem(.separator())
 
+        retryTranscriptionItem = NSMenuItem(
+            title: "Retry unfinished transcriptions",
+            action: #selector(retryTranscriptionsClicked),
+            keyEquivalent: ""
+        )
+        menu.addItem(retryTranscriptionItem)
+
         toggleItem = NSMenuItem(
             title: "Start recording",
             action: #selector(toggleClicked),
@@ -71,7 +80,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, quit] {
+        for item in [retryTranscriptionItem, toggleItem, openFolder, quit] {
             item.target = self
         }
 
@@ -124,6 +133,12 @@ final class MenuBarController {
         transcriptionLabel.isHidden = text == nil
     }
 
+    /// Disable only while the scan request is in flight, not for the duration
+    /// of transcription: another failed session can be retried mid-queue.
+    func finishRetryRequest() {
+        retryTranscriptionItem.isEnabled = true
+    }
+
     // Inlined Lucide feather SVG. Keeping it in source means the executable
     // has no separate resource bundle to install alongside it — true
     // single-binary.
@@ -148,5 +163,9 @@ final class MenuBarController {
 
     @objc private func toggleClicked() { onToggle?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
+    @objc private func retryTranscriptionsClicked() {
+        retryTranscriptionItem.isEnabled = false
+        onRetryTranscriptions?()
+    }
     @objc private func quitClicked() { onQuit?() }
 }
