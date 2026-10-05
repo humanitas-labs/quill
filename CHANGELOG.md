@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Updated FluidAudio to 0.17.5, fixing garbled words at transcription chunk
+  seams (every ~12.9 s of a track), such as `That''ss right right..` or
+  `o,h`. Upstream stopped re-sorting merged tokens by frame timestamp
+  (FluidInference/FluidAudio#830).
+
 ## 0.1.3 - 2026-08-04
 
 - Fixed macOS route changes silently truncating capture: both tracks now have
