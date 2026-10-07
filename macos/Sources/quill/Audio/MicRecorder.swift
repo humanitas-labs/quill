@@ -300,8 +300,8 @@ final class MicRecorder: TrackRecorder, @unchecked Sendable {
         }
     }
 
-    /// Raw path: tap at the device's native format and downmix to mono. Same
-    /// sample rate on both sides, so the one-shot convert applies.
+    /// Mix discrete hardware channels explicitly; AVAudioConverter can map
+    /// a multichannel interface to silence when it has no speaker layout.
     private func installRawTap(
         on input: AVAudioInputNode,
         inputFormat: AVAudioFormat,
@@ -309,9 +309,6 @@ final class MicRecorder: TrackRecorder, @unchecked Sendable {
         segment: SegmentFile,
         onEvent: @escaping @Sendable (RecorderEvent) -> Void
     ) throws {
-        guard let converter = AVAudioConverter(from: inputFormat, to: monoFormat) else {
-            throw RecorderError.formatUnsupported(inputFormat)
-        }
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { buffer, when in
             guard
                 let mono = AVAudioPCMBuffer(
@@ -319,16 +316,23 @@ final class MicRecorder: TrackRecorder, @unchecked Sendable {
                     frameCapacity: buffer.frameCapacity
                 )
             else { return }
-            do {
-                try converter.convert(to: mono, from: buffer)
-            } catch {
-                onEvent(.writeFailed("mic downmix failed: \(error)"))
-                return
-            }
+            Self.downmix(buffer, into: mono)
             let hostTime = when.isHostTimeValid ? when.hostTime : nil
             if let error = segment.write(mono, hostTime: hostTime) {
                 onEvent(.writeFailed(error))
             }
+        }
+    }
+
+    static func downmix(_ input: AVAudioPCMBuffer, into output: AVAudioPCMBuffer) {
+        output.frameLength = input.frameLength
+        let channels = Int(input.format.channelCount)
+        for frame in 0..<Int(input.frameLength) {
+            var sample: Float = 0
+            for channel in 0..<channels {
+                sample += input.floatChannelData![channel][frame]
+            }
+            output.floatChannelData![0][frame] = sample / Float(channels)
         }
     }
 }
