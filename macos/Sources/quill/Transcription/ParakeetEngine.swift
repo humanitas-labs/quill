@@ -9,15 +9,9 @@ import Foundation
 actor ParakeetEngine: TranscriptionEngine {
     enum EngineError: Error, CustomStringConvertible {
         case notPrepared
-        case unreadableAudio(URL, Error?)
 
         var description: String {
-            switch self {
-            case .notPrepared: return "parakeet engine used before prepare()"
-            case .unreadableAudio(let url, let e):
-                return "unreadable or empty audio \(url.lastPathComponent)"
-                    + (e.map { ": \($0)" } ?? "")
-            }
+            "parakeet engine used before prepare()"
         }
     }
 
@@ -43,11 +37,11 @@ actor ParakeetEngine: TranscriptionEngine {
         // down. Check readability up front instead.
         do {
             let probe = try AVAudioFile(forReading: audio)
-            guard probe.length > 0 else { throw EngineError.unreadableAudio(audio, nil) }
-        } catch let error as EngineError {
+            guard probe.length > 0 else { throw UnreadableTranscriptionInput(audio: audio) }
+        } catch let error as UnreadableTranscriptionInput {
             throw error
         } catch {
-            throw EngineError.unreadableAudio(audio, error)
+            throw UnreadableTranscriptionInput.classify(error, audio: audio)
         }
 
         var state = try TdtDecoderState()

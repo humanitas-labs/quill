@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added macOS transcription provider adapters for Handy and configurable
+  local commands alongside the default Parakeet engine. Command providers
+  share bounded WAV conversion, timeouts, JSON validation, and timestamp
+  alignment; Handy reuses downloaded models and is checked by `quill doctor`.
+- Invalid provider settings and command failures now fail explicitly instead
+  of switching engines or publishing an empty completion marker.
+
 ## 0.1.3 - 2026-08-04
 
 - Fixed macOS route changes silently truncating capture: both tracks now have

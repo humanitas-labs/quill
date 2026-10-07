@@ -1,5 +1,4 @@
 import AVFoundation
-import FluidAudio
 import Foundation
 
 enum CheckStatus {
@@ -77,7 +76,7 @@ enum DoctorReport {
     }
 
     /// Never discover a missing model after an important meeting: report
-    /// whether the parakeet models are already in FluidAudio's cache.
+    /// whether the configured provider and its local models are ready.
     static func checkTranscription() -> Check {
         guard Config.transcriptionEnabled() else {
             return Check(
@@ -86,15 +85,14 @@ enum DoctorReport {
                 remediation: nil
             )
         }
-        let cache = AsrModels.defaultCacheDirectory(for: .v2)
-        if AsrModels.modelsExist(at: cache, version: .v2) {
-            return Check(name: "transcription", status: .ok, remediation: nil)
+        do {
+            return try TranscriptionProvider().checkReadiness()
+        } catch {
+            return Check(
+                name: "transcription", status: .fail(String(describing: error)),
+                remediation: "check transcription settings in \(Config.path.path)"
+            )
         }
-        return Check(
-            name: "transcription",
-            status: .warn("parakeet models not downloaded (~600 MB)"),
-            remediation: "downloads automatically on first transcription — record a short test session while online"
-        )
     }
 
     static func print(_ checks: [Check]) {

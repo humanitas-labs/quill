@@ -19,6 +19,11 @@ actor TranscriptionCoordinator {
     private var engine: TranscriptionEngine?
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
+    private let engineFactory: @Sendable () throws -> any TranscriptionEngine
+
+    init(engineFactory: @escaping @Sendable () throws -> any TranscriptionEngine = { try TranscriptionProvider().makeEngine() }) {
+        self.engineFactory = engineFactory
+    }
 
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
         statusHandler = handler
@@ -101,7 +106,8 @@ actor TranscriptionCoordinator {
         drainIfIdle()
     }
 
-    private func transcribe(_ dir: URL) async throws {
+    // Internal for exercising the entire persistence path without UI notifications.
+    func transcribe(_ dir: URL) async throws {
         // Both metadata schemas normalize to ordered (file, speaker, offset)
         // inputs — one per segment under v2, one per track under v1. Each
         // segment transcribes independently and shifts onto the session
@@ -113,8 +119,7 @@ actor TranscriptionCoordinator {
         for input in inputs {
             let audio = dir.appendingPathComponent(input.file)
             guard FileManager.default.fileExists(atPath: audio.path) else {
-                log(dir, "skipping missing segment \(input.file)")
-                continue
+                throw TranscriptionCommandError("session audio file is missing: \(audio.path)")
             }
             log(dir, "transcribing \(input.file) (\(engine.name))")
             // One bad segment (empty, truncated) shouldn't cost us the rest —
@@ -122,7 +127,7 @@ actor TranscriptionCoordinator {
             let segments: [TranscriptSegment]
             do {
                 segments = try await engine.transcribe(audio)
-            } catch {
+            } catch let error as UnreadableTranscriptionInput {
                 log(dir, "skipping \(input.file): \(error)")
                 continue
             }
@@ -142,14 +147,7 @@ actor TranscriptionCoordinator {
 
     private func preparedEngine() async throws -> TranscriptionEngine {
         if let engine { return engine }
-        let configured = Config.transcriptionEngine()
-        if configured != "parakeet" {
-            FileHandle.standardError.write(
-                Data(
-                    "warning: unknown transcription engine \"\(configured)\" — using parakeet\n".utf8
-                ))
-        }
-        let engine = ParakeetEngine()
+        let engine = try engineFactory()
         try await engine.prepare()
         self.engine = engine
         return engine
