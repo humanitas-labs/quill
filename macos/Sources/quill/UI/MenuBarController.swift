@@ -21,8 +21,12 @@ final class MenuBarController {
     private let warningLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let toggleItem: NSMenuItem
+    private let recordForItem: NSMenuItem
+    private let extendItem: NSMenuItem
 
     var onToggle: (() -> Void)?
+    var onStartTimed: ((TimeInterval) -> Void)?
+    var onExtend: ((TimeInterval) -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
 
@@ -54,6 +58,39 @@ final class MenuBarController {
             keyEquivalent: "r"
         )
         menu.addItem(toggleItem)
+
+        extendItem = NSMenuItem(title: "Extend by…", action: nil, keyEquivalent: "")
+        recordForItem = NSMenuItem(title: "Record for…", action: nil, keyEquivalent: "")
+        let timedMenu = NSMenu()
+        timedMenu.autoenablesItems = false
+        for seconds in [600.0, 900, 1800, 3600, 5400, 7200] {
+            let item = NSMenuItem(
+                title: StopTimer.label(for: seconds),
+                action: #selector(timedClicked(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = seconds
+            timedMenu.addItem(item)
+        }
+        recordForItem.submenu = timedMenu
+        menu.addItem(recordForItem)
+
+        let extendMenu = NSMenu()
+        extendMenu.autoenablesItems = false
+        for seconds in [300.0, 600, 900, 1800] {
+            let item = NSMenuItem(
+                title: StopTimer.label(for: seconds),
+                action: #selector(extendClicked(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = seconds
+            extendMenu.addItem(item)
+        }
+        extendItem.submenu = extendMenu
+        extendItem.isHidden = true
+        menu.addItem(extendItem)
 
         let openFolder = NSMenuItem(
             title: "Open recordings folder",
@@ -92,22 +129,25 @@ final class MenuBarController {
     /// `signalWarning` is a secondary diagnostic (exact digital silence on a
     /// track that is still delivering callbacks) — its own line, never the
     /// same visual state as stopped callbacks.
-    func update(_ display: Display, signalWarning: Bool = false) {
+    func update(_ display: Display, signalWarning: Bool = false, remaining: String? = nil) {
+        let suffix = remaining.map { " · stops in \($0)" } ?? ""
+        recordForItem.isHidden = display != .idle
+        extendItem.isHidden = display == .idle || remaining == nil
         switch display {
         case .idle:
             stateLabel.title = "idle"
             toggleItem.title = "Start recording"
             statusItem.button?.contentTintColor = nil
         case .recording(let elapsed):
-            stateLabel.title = "● recording · \(elapsed)"
+            stateLabel.title = "● recording · \(elapsed)\(suffix)"
             toggleItem.title = "Stop recording"
             statusItem.button?.contentTintColor = .systemRed
         case .recovering(let track, let elapsed):
-            stateLabel.title = "◐ recovering \(track) · \(elapsed)"
+            stateLabel.title = "◐ recovering \(track) · \(elapsed)\(suffix)"
             toggleItem.title = "Stop recording"
             statusItem.button?.contentTintColor = .systemOrange
         case .degraded(let track, let elapsed):
-            stateLabel.title = "⚠ \(track) capture lost · \(elapsed)"
+            stateLabel.title = "⚠ \(track) capture lost · \(elapsed)\(suffix)"
             toggleItem.title = "Stop recording"
             statusItem.button?.contentTintColor = .systemOrange
         }
@@ -147,6 +187,14 @@ final class MenuBarController {
     }
 
     @objc private func toggleClicked() { onToggle?() }
+    @objc private func timedClicked(_ sender: NSMenuItem) {
+        guard let seconds = sender.representedObject as? TimeInterval else { return }
+        onStartTimed?(seconds)
+    }
+    @objc private func extendClicked(_ sender: NSMenuItem) {
+        guard let seconds = sender.representedObject as? TimeInterval else { return }
+        onExtend?(seconds)
+    }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
 }
