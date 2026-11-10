@@ -85,10 +85,13 @@ final class AppController {
     private var session: RecordingSession?
     private var captureStatus = RecordingSession.CaptureStatus.allHealthy
     private var ticker: Timer?
+    private var stopDeadline: Date?
 
     init(root: URL) {
         self.root = root
         menuBar.onToggle = { [weak self] in self?.toggle() }
+        menuBar.onStartTimed = { [weak self] d in self?.startTimed(d) }
+        menuBar.onExtend = { [weak self] d in self?.extend(by: d) }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(.idle)
@@ -117,7 +120,20 @@ final class AppController {
         }
     }
 
-    private func startSession() {
+    private func startTimed(_ duration: TimeInterval) {
+        guard session == nil else { return }
+        startSession(duration: duration)
+    }
+
+    private func extend(by seconds: TimeInterval) {
+        guard session != nil, let deadline = stopDeadline else { return }
+        stopDeadline = StopTimer(deadline: deadline).extended(by: seconds).deadline
+        FileHandle.standardError.write(
+            Data("◍ auto-stop extended by \(Self.shortFormat(seconds))\n".utf8))
+        refreshMenu()
+    }
+
+    private func startSession(duration: TimeInterval? = nil) {
         do {
             let newSession = try RecordingSession(root: root)
             newSession.onStatus = { [weak self] status in
@@ -135,7 +151,10 @@ final class AppController {
             try newSession.start()
             session = newSession
             captureStatus = .allHealthy
-            FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
+            stopDeadline = duration.map { newSession.startedAt.addingTimeInterval($0) }
+            let autoStop = duration.map { " (auto-stop in \(Self.shortFormat($0)))" } ?? ""
+            FileHandle.standardError.write(
+                Data("● recording\(autoStop) → \(newSession.dir.path)\n".utf8))
         } catch {
             FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
             notifyUser(title: "quill — recording failed", body: "\(error)")
@@ -162,6 +181,7 @@ final class AppController {
             ))
         self.session = nil
         captureStatus = .allHealthy
+        stopDeadline = nil
         ticker?.invalidate()
         ticker = nil
         menuBar.update(.idle)
@@ -191,6 +211,9 @@ final class AppController {
     private func refreshMenu() {
         guard let session else { return }
         let elapsed = Self.format(Date().timeIntervalSince(session.startedAt))
+        let remaining = stopDeadline.map {
+            Self.format(ceil(StopTimer(deadline: $0).remaining(at: Date())))
+        }
         let display: MenuBarController.Display
         switch captureStatus.display {
         case .healthy:
@@ -200,7 +223,7 @@ final class AppController {
         case .degraded(let kind):
             display = .degraded(track: kind.label, elapsed: elapsed)
         }
-        menuBar.update(display, signalWarning: captureStatus.signalWarning)
+        menuBar.update(display, signalWarning: captureStatus.signalWarning, remaining: remaining)
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {
@@ -217,6 +240,18 @@ final class AppController {
     }
 
     private func tick() {
+        if let deadline = stopDeadline,
+            StopTimer(deadline: deadline).isExpired(at: Date())
+        {
+            let elapsed = Self.format(Date().timeIntervalSince(session?.startedAt ?? Date()))
+            notifyUser(
+                title: "quill — timer finished",
+                body: "Recording stopped after \(elapsed)."
+            )
+            FileHandle.standardError.write(Data("◍ auto-stop reached · \(elapsed)\n".utf8))
+            stopSession()
+            return
+        }
         refreshMenu()
     }
 
@@ -233,5 +268,10 @@ final class AppController {
         return h > 0
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%d:%02d", m, s)
+    }
+
+    private static func shortFormat(_ interval: TimeInterval) -> String {
+        let seconds = Int(interval)
+        return seconds % 3600 == 0 ? "\(seconds / 3600)h" : "\(seconds / 60)m"
     }
 }
